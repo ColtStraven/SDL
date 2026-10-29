@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use sdl_replay_decoder::diagnostics::Severity;
 use sdl_replay_decoder::export;
 use sdl_replay_decoder::manifest::{self, Depth, Manifest, Options};
+use sdl_replay_decoder::tracks::{Comparison, Dist, FlightReport, TrackConfig};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -39,6 +40,21 @@ enum Command {
         payloads: bool,
         #[arg(long, default_value_t = 4096)]
         max_output_mib: u64,
+    },
+    /// Reconstruct aircraft tracks; write flight_tracks.jsonl and flight_summary.json.
+    Flight {
+        replay: PathBuf,
+        /// Output directory [default: ./sdl-out/<replay name>].
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Reconstruct tracks for many replays; print validation statistics.
+    FlightSurvey {
+        /// Replay files or directories containing .wrpl files.
+        paths: Vec<PathBuf>,
+        /// Write all flight reports (without per-track summaries) as JSON.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Inspect and frame many replays; print a compatibility table.
     Survey {
@@ -139,6 +155,68 @@ fn print_summary(m: &Manifest) {
     }
 }
 
+fn fmt_dist(d: &Dist) -> String {
+    match (d.p50, d.p90, d.p99) {
+        (Some(a), Some(b), Some(c)) => format!("p50 {a:.3} p90 {b:.3} p99 {c:.3} (n {})", d.n),
+        _ => "n/a".into(),
+    }
+}
+
+fn fmt_cmp(c: &Comparison) -> String {
+    match c.pearson_r {
+        Some(r) => format!("r {r:.5}, |err| {}", fmt_dist(&c.abs_error)),
+        None if c.n > 0 => format!("|err| {}", fmt_dist(&c.abs_error)),
+        None => "n/a".into(),
+    }
+}
+
+fn print_flight(name: &str, r: &FlightReport) {
+    let c = &r.coverage;
+    println!("SDL flight reconstruction — {name} (game {}, {})", r.replay.game_version, r.replay.format_magic);
+    println!(
+        "  sync packets  {} ({} structurally decoded, {} failed)",
+        c.sync_packets, c.structurally_decoded_packets, c.structural_failures
+    );
+    println!(
+        "  records       {} entries: {} state, {} withheld, {} no-data",
+        c.entries, c.state_records, c.withheld_entries, c.no_data_entries
+    );
+    let pct = |x: u64| if c.payload_bits > 0 { 100.0 * x as f64 / c.payload_bits as f64 } else { 0.0 };
+    println!(
+        "  bit coverage  physical {:.1}%  structural-only {:.1}%  trailer {:.1}%  unparsed {:.1}%",
+        pct(c.physically_decoded_bits),
+        pct(c.structural_only_bits),
+        pct(c.trailer_bits),
+        pct(c.unparsed_bits)
+    );
+    println!("  tracks        {} segments over {} uids, {} samples, author uid(s) {:?}", r.tracks, r.uids, r.samples, r.author_uids);
+    let k = &r.kinematic_validation;
+    println!("  kinematics    displacement residual m: {}", fmt_dist(&k.displacement_residual_m));
+    println!("                displacement direction err deg: {}", fmt_dist(&k.displacement_direction_error_deg));
+    println!("                author-only residual m: {}", fmt_dist(&k.author_displacement_residual_m));
+    println!("                author-only direction err deg: {}", fmt_dist(&k.author_displacement_direction_error_deg));
+    println!("                |heading - track| deg: {}", fmt_dist(&k.heading_minus_track_abs_deg));
+    println!("                pitch - flight path deg: {}", fmt_dist(&k.pitch_minus_flight_path_deg));
+    let v = &r.cockpit_validation;
+    if v.matched > 0 {
+        println!(
+            "  cockpit       {} matched of {} author samples; altimeter id {:?} in {}, within 2 m {:.1}%",
+            v.matched,
+            v.author_samples,
+            v.altimeter_param_id,
+            v.altimeter_unit.unwrap_or("-"),
+            v.altitude_within_2m_fraction.unwrap_or(0.0) * 100.0
+        );
+        println!("                altitude m: {}", fmt_cmp(&v.altitude_m));
+        println!("                vertical speed m/s: {}", fmt_cmp(&v.vertical_speed_mps));
+        println!("                roll deg: {}", fmt_cmp(&v.roll_deg));
+        println!("                pitch deg: {}", fmt_cmp(&v.pitch_deg));
+        println!("                IAS (ISA from TAS) m/s: {}", fmt_cmp(&v.ias_isa_mps));
+    } else {
+        println!("  cockpit       no matched cockpit messages ({} messages, {} author samples)", v.cockpit_messages, v.author_samples);
+    }
+}
+
 fn collect(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for p in paths {
@@ -187,6 +265,44 @@ fn run() -> Result<ExitCode, String> {
             println!("wrote {}", ex.manifest_path.display());
             println!("wrote {}", ex.packets_path.display());
             Ok(exit_for(&ex.manifest))
+        }
+        Command::Flight { replay, out } => {
+            let file = read(&replay)?;
+            let dir = out.unwrap_or_else(|| PathBuf::from("sdl-out").join(export::sanitized_stem(&replay)));
+            let (ex, tracks_path, summary_path) =
+                export::export_flight(&replay, &file, &dir, Options::default()).map_err(|e| e.to_string())?;
+            print_flight(&ex.manifest.input.file_name, &ex.report);
+            println!("wrote {}", tracks_path.display());
+            println!("wrote {}", summary_path.display());
+            Ok(exit_for(&ex.manifest))
+        }
+        Command::FlightSurvey { paths, out } => {
+            let mut reports = Vec::new();
+            let mut worst = ExitCode::SUCCESS;
+            for f in collect(&paths) {
+                let file = match read(&f) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        println!("{e}");
+                        continue;
+                    }
+                };
+                let name = f.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                let ex = export::analyze_flight(&name, &file, Options::default(), TrackConfig::default(), |_| Ok(()))
+                    .map_err(|e| e.to_string())?;
+                print_flight(&name, &ex.report);
+                if ex.manifest.status != "ok" || ex.report.coverage.structural_failures > 0 {
+                    worst = ExitCode::from(1);
+                }
+                let mut r = ex.report;
+                r.track_summaries.clear();
+                reports.push(serde_json::json!({ "file_name": name, "report": r }));
+            }
+            if let Some(o) = out {
+                export::write_json(&o, &reports).map_err(|e| e.to_string())?;
+                eprintln!("wrote {}", o.display());
+            }
+            Ok(worst)
         }
         Command::Survey { paths, out } => {
             let files = collect(&paths);

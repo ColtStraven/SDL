@@ -7,7 +7,7 @@ Every genuine replay used for compatibility testing. Files were **read only**, n
 - Format magic: `0x00018C1C` (all files)
 - Codec: Zstandard, one frame per file
 - Game version: the header's `game_version` field, interpreted EXPERIMENTALLY as `major.minor.patch.build`
-- Decoder: `sdl-replay-decoder` 0.1.0, 2026-10-29
+- Decoder: `sdl-replay-decoder` 0.1.0 (Milestones 1–2) and 0.2.0 (Milestone 3), 2026-10-29
 - Reproduce: `SDL_REPLAY_DIR=<folder> cargo test --release -- --ignored`, or `sdl-replay-decoder survey <folder>`
 
 Result: **27 of 27 decode with status `ok`.** In every file, every compressed byte is consumed, every decompressed byte is framed into packets, there are 0 unknown packet types and 0 malformed records, the clock is monotonic, and the end marker is the final record.
@@ -45,3 +45,52 @@ Result: **27 of 27 decode with status `ok`.** In every file, every compressed by
 | #2026.10.25 06.01.19.wrpl|5296707|2.59.0.86|Zstd|92272|589.9|true|352317cb86a051cf40c024292837f63f8c71825470ed0332cfef6c1e9ede03b5 |
 
 Not yet tested, because no genuine sample exists: format `18c0b` (pre-2.59 zlib), `18c0a` (dev), server replay parts, and any later client builds.
+
+## Milestone 3 — flight-state reconstruction (decoder 0.2.0)
+
+Reproduce with `sdl-replay-decoder flight-survey <folder>`. **All 103,698 type-2 packets in the 27 replays decode structurally (0 failures).**
+
+Column key:
+- **Resid all** and **Resid author** (m): median / p99 of abs(displacement − mean decoded speed × dt) for consecutive samples ≤ 300 ms apart.
+- **Dir author** (°): median angle between the author's displacement and decoded velocity.
+- **Ck**: cockpit messages compared.
+- **Alt id**: cockpit altimeter id and unit chosen.
+- Error columns are median / p99 abs error against cockpit instruments, at the cockpit time, using interpolated author state.
+- **IAS**: median abs error of ISA-converted decoded speed vs cockpit IAS (m/s).
+- "–" means not available: no cockpit message, no author, or a parked author.
+
+| Replay | Sync pkts | States | Tracks | UIDs | Resid all m | Resid author m | Dir author ° | Ck | Alt id | Alt m | VS m/s | Roll ° | Pitch ° | IAS m/s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026.10.22 16.18.52 | 2546 | 59063 | 69 | 39 | 0.65 / 47.9 | 0.000 / 0.00 | – | 2517 | 40 ft | 0.153 / 0.15 | 0.010 | 0.056 / 0.06 | 0.052 / 0.05 | – |
+| 2026.10.23 07.50.42 | 100 | 1379 | 16 | 16 | 2.70 / 627.3 | – / – | – | 0 | – | – | – | – | – | – |
+| 2026.10.23 10.09.23 | 62 | 0 | 0 | 0 | – / – | – / – | – | 0 | – | – | – | – | – | – |
+| 2026.10.23 11.20.27 | 9381 | 291388 | 147 | 63 | 1.24 / 5.7 | 0.059 / 0.24 | 0.111 | 9300 | 40 m | 0.005 / 0.12 | 0.186 | 0.055 / 1.26 | 0.045 / 0.26 | 1.46 |
+| 2026.10.23 11.36.11 | 3302 | 86430 | 91 | 49 | 1.72 / 50.3 | 0.081 / 0.29 | 0.116 | 3240 | 40 m | 0.005 / 0.10 | 0.257 | 0.050 / 0.52 | 0.044 / 0.16 | 0.93 |
+| 2026.10.23 11.39.53 | 210 | 4440 | 26 | 25 | 1.20 / 74.7 | – / – | – | 0 | – | – | – | – | – | – |
+| 2026.10.23 15.24.22 | 4037 | 62710 | 67 | 38 | 1.56 / 70.2 | 0.044 / 0.31 | 0.092 | 3836 | 40 m | 0.004 / 0.10 | 0.140 | 0.039 / 4.54 | 0.042 / 0.87 | 1.97 |
+| 2026.10.23 15.34.36 | 2204 | 59985 | 75 | 38 | 1.62 / 64.1 | 0.000 / 0.00 | – | 1850 | 40 m | 0.000 / 0.00 | 0.005 | 0.002 / 0.00 | 0.020 / 0.02 | – |
+| 2026.10.23 15.37.33 | 251 | 3674 | 26 | 24 | 2.20 / 159.1 | 0.000 / 0.00 | – | 162 | 40 m | 0.000 / 0.00 | 0.023 | 0.005 / 0.00 | 0.040 / 0.04 | – |
+| 2026.10.23 15.46.48 | 1689 | 27571 | 31 | 22 | 1.59 / 48.2 | 0.054 / 0.20 | 0.110 | 1542 | 42 ft | 0.655 / 1.00 | 0.146 | 0.050 / 2.83 | 0.047 / 1.49 | 0.73 |
+| 2026.10.23 15.47.41 | 9 | 164 | 19 | 19 | 40.26 / 68.0 | 0.000 / 0.00 | – | 0 | – | – | – | – | – | – |
+| 2026.10.23 16.31.10 | 10238 | 190234 | 135 | 54 | 1.82 / 50.7 | 0.064 / 0.25 | 0.116 | 10177 | 40 m | 0.011 / 0.11 | 0.218 | 0.052 / 1.11 | 0.045 / 0.57 | 1.76 |
+| 2026.10.23 16.37.32 | 92 | 2539 | 30 | 28 | 1.61 / 801.2 | – / – | – | 0 | – | – | – | – | – | – |
+| 2026.10.23 17.07.27 | 7027 | 217578 | 198 | 79 | 1.76 / 68.9 | 0.047 / 0.25 | 0.102 | 6866 | – | – | – | – | – | – |
+| 2026.10.23 17.09.25 | 92 | 828 | 9 | 9 | 2.31 / 187.7 | – / – | – | 0 | – | – | – | – | – | – |
+| 2026.10.24 06.51.45 | 4292 | 114793 | 96 | 57 | 1.45 / 9.3 | 0.062 / 0.29 | 0.103 | 4074 | 42 m | 0.012 / 0.18 | – | 0.042 / 3.47 | 0.044 / 0.82 | 2.11 |
+| 2026.10.24 06.56.29 | 243 | 3830 | 21 | 21 | 2.29 / 141.4 | – / – | – | 0 | – | – | – | – | – | – |
+| 2026.10.24 08.23.02 | 18699 | 404550 | 240 | 67 | 1.98 / 59.1 | 0.061 / 0.27 | 0.099 | 18493 | 42 ft | 0.294 / 1.33 | 0.189 | 0.042 / 3.28 | 0.049 / 0.71 | 1.03 |
+| 2026.10.24 12.32.14 | 11951 | 262973 | 253 | 70 | 2.01 / 60.2 | 0.072 / 0.30 | 0.103 | 11753 | 42 ft | 0.370 / 2.67 | 0.238 | 0.054 / 3.94 | 0.047 / 0.83 | 0.90 |
+| 2026.10.24 13.34.27 | 3170 | 54534 | 42 | 27 | 1.50 / 29.7 | 0.051 / 0.21 | 0.093 | 3011 | 40 ft | 0.203 / 0.46 | 0.137 | 0.068 / 5.83 | 0.053 / 0.75 | 2.67 |
+| 2026.10.24 14.05.54 | 2245 | 35613 | 33 | 24 | 1.66 / 46.7 | 0.066 / 0.27 | 0.105 | 1705 | 40 m | 0.022 / 0.27 | 0.248 | 0.065 / 3.72 | 0.051 / 0.77 | 3.25 |
+| 2026.10.24 14.23.19 | 3161 | 76197 | 174 | 32 | 1.31 / 44.3 | 0.067 / 0.30 | 0.126 | 3011 | 40 m | 0.016 / 0.43 | 0.228 | 0.207 / 6.68 | 0.055 / 2.00 | 0.58 |
+| 2026.10.24 14.25.22 | 325 | 8454 | 55 | 32 | 1.02 / 55.4 | 0.054 / 0.10 | 0.373 | 122 | 40 ft | 0.014 / 0.02 | 0.010 | 0.021 / 0.08 | 0.029 / 0.35 | 0.12 |
+| 2026.10.24 15.03.43 | 8653 | 259024 | 342 | 32 | 1.00 / 5.3 | 0.052 / 0.23 | 0.222 | 8434 | 42 ft | 0.042 / 0.28 | 0.121 | 0.059 / 7.61 | 0.056 / 1.80 | 0.56 |
+| 2026.10.24 15.28.36 | 4948 | 134185 | 109 | 54 | 1.43 / 10.7 | 0.062 / 0.25 | 0.108 | 4717 | 42 ft | 0.332 / 0.94 | 0.198 | 0.066 / 6.35 | 0.063 / 1.08 | 2.37 |
+| 2026.10.25 04.37.02 | 2411 | 54709 | 77 | 40 | 0.06 / 0.2 | 0.062 / 0.23 | 0.147 | 2198 | 42 ft | 0.649 / 1.19 | 0.232 | 0.235 / 2.70 | 0.075 / 1.99 | 3.91 |
+| 2026.10.25 06.01.19 | 2360 | 51178 | 79 | 38 | 0.06 / 0.2 | 0.065 / 0.22 | 0.127 | 2149 | 40 ft | 0.381 / 0.79 | 0.238 | 0.155 / 2.88 | 0.071 / 0.76 | 4.58 |
+| **Total** | **103,698** | **2,468,023** | **2,460** | **997** | | | | **99,157** | | | | | | |
+
+Notes:
+- 2026.10.23 10.09.23 contains no aircraft state records (62 sync packets, all entries no-data).
+- Seven replays have no `0xD04A` messages, and 2026.10.23 17.07.27 has a cockpit set without altitude or attitude ids, so cockpit validation covers 19 replays.
+- Replays where the author is parked show constant, exactly matching values. These are not evidence of in-flight accuracy.
