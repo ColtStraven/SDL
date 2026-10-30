@@ -23,6 +23,8 @@ pub const EARLY_SYNC_MS: u32 = 300;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Unit {
+    /// Raw entity id of this unit.
+    pub eid: u32,
     pub uid: u16,
     pub created_ms: u32,
     pub template: String,
@@ -81,6 +83,7 @@ fn parse_unit(created_ms: u32, e: &EntityCreate) -> Option<Unit> {
     let f = |o: usize| f32::from_le_bytes(d[o..o + 4].try_into().unwrap());
     let mut strings = prefixed_strings(&d[32..], 3).into_iter();
     Some(Unit {
+        eid: e.eid,
         uid: u16::from_le_bytes([d[30], d[31]]) & 0x7FF,
         created_ms,
         template: e.template.clone(),
@@ -93,16 +96,79 @@ fn parse_unit(created_ms: u32, e: &EntityCreate) -> Option<Unit> {
     })
 }
 
+/// Any unit-like entity, keyed by raw entity id. Launchers can be aircraft,
+/// ground units or ships, so this is wider than the aircraft registry.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct EntityInfo {
+    pub eid: u32,
+    pub created_ms: u32,
+    /// `aircraft`, `ground` or `ship`.
+    pub kind: &'static str,
+    pub template: String,
+    pub vehicle: Option<String>,
+    pub mission_slot: Option<String>,
+    pub loadout: Option<String>,
+    pub uid: Option<u16>,
+    pub equipment: Vec<String>,
+    pub spawn_position_m: Option<[f32; 3]>,
+}
+
+fn entity_kind(template: &str) -> Option<&'static str> {
+    let base = template.split('+').next().unwrap_or("");
+    match base {
+        "aircraft" => Some("aircraft"),
+        "tank" | "simple_tank" | "fortification" => Some("ground"),
+        "ship" => Some("ship"),
+        _ => None,
+    }
+}
+
+fn clean_vehicle(s: String) -> String {
+    s.trim_start_matches("tankModels/").trim_start_matches("ships/").trim_start_matches("structures/").to_string()
+}
+
 #[derive(Debug, Default)]
 pub struct Registry {
     by_uid: HashMap<u16, Vec<Unit>>,
+    by_eid: HashMap<u32, Vec<EntityInfo>>,
     pub units: u64,
 }
 
 impl Registry {
-    /// Record an entity creation if it is an aircraft unit.
+    /// The entity with raw id `eid` at time `t`. Ids are reused only with a
+    /// new generation, but a replay can recreate an entity, so time matters.
+    pub fn entity(&self, eid: u32, t: u32) -> Option<&EntityInfo> {
+        self.by_eid.get(&eid)?.iter().rfind(|u| u.created_ms <= t)
+    }
+
+    /// The ground or ship unit holding `uid` at time `t`.
+    pub fn surface_unit(&self, uid: u16, t: u32) -> Option<&EntityInfo> {
+        self.by_eid.values().flatten().filter(|u| u.kind != "aircraft" && u.uid == Some(uid) && u.created_ms <= t).max_by_key(|u| u.created_ms)
+    }
+
+    /// Record an entity creation if it is a unit.
     pub fn push(&mut self, t: u32, e: &EntityCreate) {
-        if !e.template.starts_with("aircraft") {
+        let Some(kind) = entity_kind(&e.template) else { return };
+        let strings = prefixed_strings(e.data.get(32..).unwrap_or(&[]), 3);
+        // Marker `30 70` on aircraft and `38 70` on ground units, then the uid.
+        let parsed = (e.data.len() >= 32 && e.data[29] == 0x70 && e.data[28] & 0xF7 == 0x30).then(|| u16::from_le_bytes([e.data[30], e.data[31]]) & 0x7FF);
+        let spawn = (e.data.len() >= 23).then(|| [11, 15, 19].map(|o: usize| f32::from_le_bytes(e.data[o..o + 4].try_into().unwrap())));
+        let vehicle = strings.first().cloned().map(clean_vehicle);
+        if vehicle.as_deref() != Some(PLACEHOLDER_VEHICLE) {
+            self.by_eid.entry(e.eid).or_default().push(EntityInfo {
+                eid: e.eid,
+                created_ms: t,
+                kind,
+                template: e.template.clone(),
+                vehicle,
+                mission_slot: strings.get(1).cloned(),
+                loadout: strings.get(2).cloned(),
+                uid: parsed,
+                equipment: strings.into_iter().skip(3).collect(),
+                spawn_position_m: spawn,
+            });
+        }
+        if kind != "aircraft" {
             return;
         }
         if let Some(u) = parse_unit(t, e).filter(|u| u.vehicle.as_deref() != Some(PLACEHOLDER_VEHICLE)) {

@@ -1,7 +1,7 @@
 //! Full-replay extraction pass: flight tracks, unit identity, battle log and
 //! weapons, gathered in one read of the packet stream.
 
-use crate::combat::{self, CombatRecord, DamageEvent, KillEvent};
+use crate::combat::{self, CombatRecord, DamageEvent, HitMarker, KillEvent};
 use crate::ecs;
 use crate::export::replay_ref;
 use crate::manifest::{self, Depth, Manifest, Options};
@@ -18,9 +18,11 @@ pub struct Extraction {
     pub registry: Registry,
     pub kills: Vec<KillEvent>,
     pub damage: Vec<DamageEvent>,
+    pub hits: Vec<HitMarker>,
     pub weapons: Vec<WeaponEvent>,
     pub weapon_samples: Vec<(String, Vec<WeaponSample>)>,
     pub weapon_stats: WeaponStats,
+    pub history: AircraftHistory,
     pub ecs_creation_packets: u64,
     pub ecs_creation_failures: u64,
 }
@@ -39,7 +41,7 @@ pub fn extract(
     let mut registry = Registry::default();
     let mut collector = weapons::Collector::default();
     let mut history = AircraftHistory::default();
-    let (mut kills, mut damage) = (Vec::new(), Vec::new());
+    let (mut kills, mut damage, mut hits) = (Vec::new(), Vec::new(), Vec::new());
     let (mut creation_packets, mut creation_failures) = (0u64, 0u64);
     let opts = Options { depth: Depth::Packets, ..opts };
 
@@ -51,11 +53,15 @@ pub fn extract(
         match p.type_id {
             Some(2) => {
                 let d = crate::aircraft::decode_sync(payload);
+                for e in &d.entries {
+                    if let crate::aircraft::EntryBody::State(s) = &e.body {
+                        collector.push_designations(e.uid, t, &s.targets);
+                    }
+                }
                 rec.push_sync(p.index, t, payload.len() as u64 * 8, &d, |s| {
                     let v = &s.velocity;
                     let pos = [s.position.x_m, s.position.y_m, s.position.z_m];
-                    collector.push_aircraft(t, s.uid, pos, [v.vx_mps, v.vy_mps, v.vz_mps]);
-                    history.push(s.uid, t, pos.map(|c| c as f32));
+                    history.push(s.uid, t, pos.map(|c| c as f32), [v.vx_mps as f32, v.vy_mps as f32, v.vz_mps as f32]);
                     sink(s);
                 });
             }
@@ -70,7 +76,14 @@ pub fn extract(
                                 kills.push(k.clone());
                                 collector.push_kill(k);
                             }
-                            Some(CombatRecord::Damage(d)) => damage.push(d),
+                            Some(CombatRecord::Damage(d)) => {
+                                collector.push_damage(d.clone());
+                                damage.push(d);
+                            }
+                            Some(CombatRecord::Hit(h)) => {
+                                collector.push_hit(h.clone());
+                                hits.push(h);
+                            }
                             None => {}
                         },
                         Err(_) => collector.note_failed_message(),
@@ -104,9 +117,11 @@ pub fn extract(
         registry,
         kills,
         damage,
+        hits,
         weapons,
         weapon_samples,
         weapon_stats,
+        history,
         ecs_creation_packets: creation_packets,
         ecs_creation_failures: creation_failures,
     })

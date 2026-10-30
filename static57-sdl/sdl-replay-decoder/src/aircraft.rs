@@ -49,6 +49,16 @@ pub struct Engine {
     pub radiators: [u8; 2],
 }
 
+/// One target designation record. Field meanings are REPORTED.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TargetRecord {
+    pub kind: u8,
+    pub second: u8,
+    pub position: Option<[f32; 3]>,
+    /// Trailing u32: `0xFFFF0000 | uid` when it names a unit.
+    pub tail: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AircraftState {
     pub ground_flag: bool,
@@ -66,6 +76,10 @@ pub struct AircraftState {
     pub sensor_count: u8,
     pub countermeasure_count: u8,
     pub target_count: u8,
+    /// Target designation records.
+    pub targets: Vec<TargetRecord>,
+    /// Raw values of sensor contact lists.
+    pub contacts: Vec<u32>,
     pub tail_pair: Option<(u16, u16)>,
     /// Bit length of the optional seeker block (kept opaque).
     pub seeker_bits: Option<u32>,
@@ -159,7 +173,7 @@ fn read_engines(r: &mut BitReader) -> BitResult<Vec<Engine>> {
     Ok(out)
 }
 
-fn read_sensor(r: &mut BitReader) -> BitResult<()> {
+fn read_sensor(r: &mut BitReader, contacts: &mut Vec<u32>) -> BitResult<()> {
     let on = r.bit("sensor.on")?;
     let kind_slot = r.byte("sensor.kind_slot")?;
     match kind_slot >> 4 {
@@ -191,22 +205,23 @@ fn read_sensor(r: &mut BitReader) -> BitResult<()> {
     }
     if r.bit("sensor.contacts.flag")? {
         let n = r.bits(6, "sensor.contacts.count")?;
-        r.skip(32 * n, "sensor.contacts")?;
+        for _ in 0..n {
+            contacts.push(r.u32_le("sensor.contact")?);
+        }
         r.skip(6, "sensor.contacts.tail")?;
     }
     Ok(())
 }
 
-fn read_target(r: &mut BitReader) -> BitResult<()> {
-    r.skip(16, "target.v1v2")?;
+fn read_target(r: &mut BitReader) -> BitResult<TargetRecord> {
+    let kind = r.byte("target.kind")?;
+    let second = r.byte("target.second")?;
     if r.bit("target.v3")? {
         r.skip(96, "target.v4")?;
     }
-    if r.bit("target.compressed")? {
-        r.skip(96 + 48, "target.compressed_pos")?;
-    } else {
-        r.skip(96 + 96, "target.pos")?;
-    }
+    let compressed = r.bit("target.compressed")?;
+    let position = Some([r.f32_le("target.pos")?, r.f32_le("target.pos")?, r.f32_le("target.pos")?]);
+    r.skip(if compressed { 48 } else { 96 }, "target.pos2")?;
     r.skip(32, "target.v5")?;
     r.skip(2, "target.v8v10")?;
     if r.bit("target.v11_flag")? {
@@ -218,10 +233,8 @@ fn read_target(r: &mut BitReader) -> BitResult<()> {
     if has_v14 {
         r.skip(8, "target.v14")?;
     }
-    if r.bit("target.v15_flag")? {
-        r.skip(32, "target.v15")?;
-    }
-    Ok(())
+    let tail = if r.bit("target.v15_flag")? { Some(r.u32_le("target.v15")?) } else { None };
+    Ok(TargetRecord { kind, second, position, tail })
 }
 
 fn read_state(r: &mut BitReader) -> BitResult<AircraftState> {
@@ -241,8 +254,9 @@ fn read_state(r: &mut BitReader) -> BitResult<AircraftState> {
     if sensor_count > MAX_SENSORS {
         return Err(invalid(r, "sensors.count > 8"));
     }
+    let mut contacts = Vec::new();
     for _ in 0..sensor_count {
-        read_sensor(r)?;
+        read_sensor(r, &mut contacts)?;
     }
     if sensor_count > 0 {
         r.skip(8, "sensors.tail")?;
@@ -259,8 +273,9 @@ fn read_state(r: &mut BitReader) -> BitResult<AircraftState> {
     if target_count > MAX_TARGETS {
         return Err(invalid(r, "targets.count > 8"));
     }
+    let mut targets = Vec::with_capacity(target_count as usize);
     for _ in 0..target_count {
-        read_target(r)?;
+        targets.push(read_target(r)?);
     }
     let tail_pair = if r.bit("tail_pair.flag")? { Some((r.u16_le("tail_pair.a")?, r.u16_le("tail_pair.b")?)) } else { None };
     let seeker_bits = if r.bit("seeker.flag")? {
@@ -285,6 +300,8 @@ fn read_state(r: &mut BitReader) -> BitResult<AircraftState> {
         sensor_count,
         countermeasure_count,
         target_count,
+        targets,
+        contacts,
         tail_pair,
         seeker_bits,
     })

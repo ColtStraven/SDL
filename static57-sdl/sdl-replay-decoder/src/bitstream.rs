@@ -48,6 +48,10 @@ impl<'a> BitReader<'a> {
         BitReader { data, pos: 0 }
     }
 
+    pub fn data(&self) -> &'a [u8] {
+        self.data
+    }
+
     pub fn position(&self) -> u64 {
         self.pos
     }
@@ -138,6 +142,15 @@ impl<'a> BitReader<'a> {
     /// Advance to the next byte boundary (no-op when aligned).
     pub fn align(&mut self) {
         self.pos = (self.pos + 7) & !7;
+    }
+
+    /// Jump to an absolute bit offset.
+    pub fn seek(&mut self, bit: u64, what: &'static str) -> BitResult<()> {
+        if bit > self.len_bits() {
+            return Err(BitError { bit, wanted_bits: 0, available_bits: 0, what });
+        }
+        self.pos = bit;
+        Ok(())
     }
 
     pub fn skip(&mut self, n: u64, what: &'static str) -> BitResult<()> {

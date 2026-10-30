@@ -24,6 +24,7 @@ pub mod measure;
 pub mod packets;
 pub mod report;
 pub mod research;
+pub mod seeker;
 pub mod shells;
 pub mod strikemaster;
 pub mod survey;

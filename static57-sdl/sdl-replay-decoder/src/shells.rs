@@ -42,6 +42,8 @@ pub struct Dynamics {
     pub seeker_float: Option<f32>,
     pub seeker_bit: Option<bool>,
     pub seeker_bits: Option<u16>,
+    /// Seeker block, left-aligned.
+    pub seeker_block: Vec<u8>,
 }
 
 impl Dynamics {
@@ -107,16 +109,19 @@ fn read_dynamics(r: &mut BitReader, no_seeker: bool) -> BitResult<Dynamics> {
         }
     }
     let (mut seeker_float, mut seeker_bit, mut seeker_bits) = (None, None, None);
+    let mut seeker_block = Vec::new();
     if !no_seeker {
         seeker_float = Some(r.f32_le("seeker.float")?);
         seeker_bit = Some(r.bit("seeker.bit")?);
         let n = r.u16_le("seeker.bits")?;
+        let at = r.position();
         r.skip(n as u64, "seeker.block")?;
+        seeker_block = BitReader::slice_bits(r.data(), at, at + n as u64);
         seeker_bits = Some(n);
     } else if r.bit("dyn.saclos")? {
         return Err(BitError { bit: r.position(), wanted_bits: 0, available_bits: r.remaining(), what: "SACLOS block not supported" });
     }
-    Ok(Dynamics { index, direction, velocity_raw, rates_raw, flag_value, flags, timers_s, seeker_float, seeker_bit, seeker_bits })
+    Ok(Dynamics { index, direction, velocity_raw, rates_raw, flag_value, flags, timers_s, seeker_float, seeker_bit, seeker_bits, seeker_block })
 }
 
 fn read_body(r: &mut BitReader, out: &mut Vec<ShellRecord>) -> BitResult<()> {
