@@ -7,7 +7,7 @@ Every genuine replay used for compatibility testing. Files were **read only**, n
 - Format magic: `0x00018C1C` (all files)
 - Codec: Zstandard, one frame per file
 - Game version: the header's `game_version` field, interpreted EXPERIMENTALLY as `major.minor.patch.build`
-- Decoder: `sdl-replay-decoder` 0.1.0 (Milestones 1–2), 0.2.0 (Milestone 3), 0.3.0 (Milestone 4), 0.4.0 (Milestone 5), 0.5.0 (Milestone 6, work in progress), 0.6.0 (Milestone 7, work in progress)
+- Decoder: `sdl-replay-decoder` 0.1.0 (Milestones 1–2), 0.2.0 (Milestone 3), 0.3.0 (Milestone 4), 0.4.0 (Milestone 5), 0.5.0 (Milestone 6, work in progress), 0.6.0 (Milestone 7, work in progress), 0.7.0 (research reporting upgrade)
 - Reproduce: `SDL_REPLAY_DIR=<folder> cargo test --release -- --ignored`, or `sdl-replay-decoder survey <folder>`
 
 Result: **27 of 27 decode with status `ok`.** In every file, every compressed byte is consumed, every decompressed byte is framed into packets, there are 0 unknown packet types and 0 malformed records, the clock is monotonic, and the end marker is the final record.
@@ -94,6 +94,10 @@ Notes:
 - 2026.10.23 10.09.23 contains no aircraft state records (62 sync packets, all entries no-data).
 - Seven replays have no `0xD04A` messages, and 2026.10.23 17.07.27 has a cockpit set without altitude or attitude ids, so cockpit validation covers 19 replays.
 - Replays where the author is parked show constant, exactly matching values. These are not evidence of in-flight accuracy.
+
+## Research reporting upgrade — all 57 replays (decoder 0.7.0, 2026-10-30)
+
+57 of 57 decode with status `ok`, on game versions 2.59.0.80, .83, .86 and .92. Totals differ from earlier sections because the owner kept flying.
 
 ## Milestone 7 — all 48 replays (decoder 0.6.0, 2026-10-30)
 

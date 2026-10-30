@@ -18,15 +18,49 @@ SDL turns replays into research reports that an analyst can read directly. It ru
 
 ## Output
 
+Default location on this PC: `C:\Users\Shadow\Desktop\Projects\SDL\research`. Each command prints the absolute path of every file it writes.
+
 ```
 research/
-  research-summary.md     cross-replay analysis, start here
+  INDEX.md                every replay, newest recording first, start here
+  LATEST.md               the most recently recorded replay
+  research-summary.md     cross-replay analysis and research opportunities
   research-summary.json   the same, machine-readable
   <replay name>/
     research-report.md    concise per-replay report
-    research-data.json    all tracks, weapons, findings, proposals
+    research-data.json    tracks, weapons, findings, engineering findings
     weapon_tracks.jsonl   every weapon sample
+    validation-report.md  8111 comparison, when a capture exists
+    validation-data.json  the same, machine-readable
 ```
+
+`INDEX.md` and `LATEST.md` are rebuilt from every report folder after each command, so older reports stay listed. "Latest" uses the replay header's recording time, never a file time. With `--out a/b`, the index goes in `a`. With a bare `--out b`, it goes in `b`.
+
+After `telemetry-validate`, run `research` on that replay to bring the validation into its engineering findings.
+
+## Reading a replay report
+
+Each report opens with an executive summary and main observations, then **Strike Master Engineering Findings** and **Recommended research priorities**. Detail follows, and full values stay in the JSON.
+
+A finding appears only if the replay holds evidence for it. Each has a stable id made from its rule and the replay hash, for example `FLT-FUEL-92fbc521`. In `research-data.json` the findings are under `engineering.findings`, schema `static57.sdl.engineering-findings/0.1`, and a missing measurement is `null`. New fields are additive, so readers of older datasets keep working.
+
+| Priority | Meaning |
+|---|---|
+| HIGH | Potentially significant problem or finding affecting Strike Master reliability, calculations or core capabilities |
+| MEDIUM | Promising improvement or research opportunity that needs more evidence |
+| LOW | Useful observation, documentation point or longer-term idea |
+
+Priorities reflect evidence quality and engineering impact, not combat results.
+
+| Nature | Meaning |
+|---|---|
+| `measurement` | What SDL measured |
+| `research_opportunity` | Worth investigating |
+| `data_gap` | Something is missing |
+| `unresolved_discrepancy` | Two things disagree, cause not established |
+| `software_error` | SDL's own structural checks failed. Nothing else is called a bug |
+
+Findings are recommendations for owner review. SDL never changes Strike Master or its databases.
 
 After a flight recorded with `telemetry-record`, `telemetry-validate` adds `validation-report.md` and `validation-data.json` to the replay's folder. See [RECORD_ONE_FLIGHT.md](RECORD_ONE_FLIGHT.md).
 
@@ -46,6 +80,7 @@ Reports are generated from the JSON datasets alone, and tests check that they ag
 
 ## Cautions for analysis
 
+- **Replay agreement validates decoding,** not real-world aircraft realism. Any model built from these figures is an extrapolation until validated.
 - **Weapon results are not an envelope.** Names come from kill records or a shared per-replay type id (306 of 306 in hold-out), so types that never killed stay unnamed. SDL does not classify misses, and an `unknown` outcome contains hits, misses and everything else. Do not infer hit probability or envelope limits from them.
 - **A kill link is a candidate,** not proof that the weapon caused the kill. "Confirmed" means a battle-log record links to the weapon.
 - **Launchers are measured, targets are inferred.** The launcher is read from the creation record. Targets, names and outcomes are inferred associations, labelled DERIVED or UNKNOWN. An `ambiguous` link supplies no name.

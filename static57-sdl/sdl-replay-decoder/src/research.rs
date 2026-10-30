@@ -17,7 +17,9 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io;
 
-pub const RESEARCH_SCHEMA: &str = "static57.sdl.research-data/0.4";
+pub const REPORT_FILE: &str = "research-report.md";
+pub const DATA_FILE: &str = "research-data.json";
+pub const RESEARCH_SCHEMA: &str = "static57.sdl.research-data/0.5";
 /// Intervals inside a track longer than this count as missing data.
 pub const MISSING_MIN_MS: u32 = 1_000;
 /// Spawn position agreement that supports a uid-to-vehicle link.
@@ -232,6 +234,8 @@ pub struct ResearchData {
     pub weapons: WeaponsSection,
     pub strike_master: StrikeMasterSection,
     pub systems: crate::systems::SystemsReport,
+    /// Strike Master engineering findings, proposed for review.
+    pub engineering: crate::engineering::EngineeringSection,
     pub findings: Vec<Finding>,
     pub unresolved_questions: Vec<String>,
 }
@@ -681,9 +685,11 @@ pub fn run(file_name: &str, file: &[u8], db: Option<&Databases>) -> io::Result<R
         strike_master,
         findings: Vec::new(),
         systems: crate::systems::analyze(&x.author),
+        engineering: Default::default(),
         unresolved_questions: Vec::new(),
     };
     data.findings = findings(&data);
     data.unresolved_questions = questions(&data);
+    data.engineering = crate::engineering::analyze(&data, db, None);
     Ok(ResearchRun { data, weapon_samples: x.weapon_samples })
 }

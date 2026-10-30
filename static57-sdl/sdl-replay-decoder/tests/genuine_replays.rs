@@ -84,7 +84,7 @@ fn genuine_research_reports() {
         for f in &d.findings {
             assert!(md.contains(&f.statement), "{name}: {}", f.id);
         }
-        assert!(md.lines().count() < 260, "{name}: report too long ({} lines)", md.lines().count());
+        assert!(md.lines().count() < 400, "{name}: report too long ({} lines)", md.lines().count());
         assert!(!w.outcome_classes.contains_key("validated_miss"), "{name}");
         let y = &d.systems;
         assert!(y.gear_vs_cockpit.agree * 100 >= y.gear_vs_cockpit.n * 99, "{name}: gear {} of {}", y.gear_vs_cockpit.agree, y.gear_vs_cockpit.n);
@@ -234,5 +234,36 @@ fn real_capture_validates_against_its_replays() {
         assert!(err("pitch") < 0.2);
         assert!(err("heading") < 0.2);
     }
+}
+
+/// The F-2A ADTW flight used as the reporting example, when it is on this
+/// machine.
+#[test]
+#[ignore = "needs a genuine .wrpl file (SDL_REPLAY_DIR)"]
+fn f2a_report_follows_the_scientific_rules() {
+    use sdl_replay_decoder::{engineering::Priority, report, research};
+    let path = replay_dir().expect("no replay directory: set SDL_REPLAY_DIR").join("#2026.10.30 15.27.38.wrpl");
+    if !path.exists() {
+        eprintln!("no {}", path.display());
+        return;
+    }
+    let d = research::run("#2026.10.30 15.27.38.wrpl", &std::fs::read(&path).unwrap(), None).unwrap().data;
+    let e = &d.engineering;
+    let find = |code: &str| e.findings.iter().find(|f| f.finding_id.starts_with(code)).unwrap_or_else(|| panic!("no {code}"));
+    let aim7 = find("WPN-us_aim7m_sparrow_f_16");
+    assert_eq!(aim7.measured_values["shots"], Some(10.0));
+    assert_eq!(aim7.measured_values["unknown_outcomes"], Some(10.0));
+    assert!(aim7.derived_analysis.contains("says nothing about guidance or tracking"));
+    assert_eq!(find("WPN-jp_aam3").measured_values["linked_kills"], Some(4.0));
+    assert!(find("LAR-jp_aam3").limitations.iter().any(|l| l.contains("No launch-envelope boundary")));
+    assert_eq!(find("HUD-ALTFT").priority, Priority::Medium);
+    assert!(find("HUD-INSTR").derived_analysis.contains("vertical speed and indicated airspeed"));
+    assert_eq!(find("FLT-FUEL").priority, Priority::Medium);
+    assert!(find("FLT-FIELDS").observation.contains("nibble 5"));
+    assert!(e.findings.iter().all(|f| f.telemetry_reference.is_none()));
+    assert!(e.executive_summary.iter().any(|l| l.contains("No synchronized capture")));
+    let md = report::render(&d);
+    assert!(md.contains("385.142 m/s ground speed"));
+    assert!(!md.to_lowercase().contains("true speed"));
 }
 

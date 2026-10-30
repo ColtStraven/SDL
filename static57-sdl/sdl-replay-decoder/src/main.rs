@@ -3,7 +3,7 @@ use sdl_replay_decoder::diagnostics::Severity;
 use sdl_replay_decoder::export;
 use sdl_replay_decoder::manifest::{self, Depth, Manifest, Options};
 use sdl_replay_decoder::strikemaster::Databases;
-use sdl_replay_decoder::{lab, report, survey, telemetry, validate};
+use sdl_replay_decoder::{index, lab, report, survey, telemetry, validate};
 use sdl_replay_decoder::tracks::{Comparison, Dist, FlightReport, TrackConfig};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -305,6 +305,16 @@ fn find_replay(cap: &telemetry::Capture, dir: &Path) -> Result<PathBuf, String> 
     best.map(|b| b.1).ok_or_else(|| format!("no replay in {} overlaps this capture's time", dir.display()))
 }
 
+/// Refresh `INDEX.md` and `LATEST.md`, and print where they are.
+fn print_index(root: &Path) -> Result<(), String> {
+    let f = index::write(root).map_err(|e| format!("cannot write the research index: {e}"))?;
+    println!("wrote {} ({} reports)", index::absolute(&f.index).display(), f.reports);
+    if let Some(l) = f.latest {
+        println!("wrote {}", index::absolute(&l).display());
+    }
+    Ok(())
+}
+
 fn run() -> Result<ExitCode, String> {
     match Cli::parse().command {
         Command::Inspect { replay, out, json, max_output_mib } => {
@@ -378,10 +388,11 @@ fn run() -> Result<ExitCode, String> {
             let file = read(&replay)?;
             let dir = out.unwrap_or_else(|| PathBuf::from("research").join(export::sanitized_stem(&replay)));
             let d = export::export_research(&replay, &file, &dir, db.as_ref()).map_err(|e| e.to_string())?;
-            println!("{}: {} tracks, {} weapons, {} findings", d.replay.file_name, d.tracks.len(), d.weapons.stats.weapons_tracked, d.findings.len());
-            println!("wrote {}", dir.join("research-report.md").display());
-            println!("wrote {}", dir.join("research-data.json").display());
-            println!("wrote {}", dir.join("weapon_tracks.jsonl").display());
+            println!("{}: {} tracks, {} weapons, {} engineering findings", d.replay.file_name, d.tracks.len(), d.weapons.stats.weapons_tracked, d.engineering.findings.len());
+            println!("wrote {}", index::absolute(&dir.join("research-report.md")).display());
+            println!("wrote {}", index::absolute(&dir.join("research-data.json")).display());
+            println!("wrote {}", index::absolute(&dir.join("weapon_tracks.jsonl")).display());
+            print_index(&index::root_for(&dir))?;
             Ok(if d.replay.status == "ok" { ExitCode::SUCCESS } else { ExitCode::from(1) })
         }
         Command::ResearchSurvey { paths, out, db_dir } => {
@@ -393,14 +404,16 @@ fn run() -> Result<ExitCode, String> {
                 let file = read(&f)?;
                 let stem = export::sanitized_stem(&f);
                 let d = export::export_research(&f, &file, &root.join(&stem), db.as_ref()).map_err(|e| e.to_string())?;
-                println!("{}: {} tracks, {} weapons", d.replay.file_name, d.tracks.len(), d.weapons.stats.weapons_tracked);
+                println!("{}: {} tracks, {} weapons, {} engineering findings", d.replay.file_name, d.tracks.len(), d.weapons.stats.weapons_tracked, d.engineering.findings.len());
+                println!("wrote {}", index::absolute(&root.join(&stem).join("research-report.md")).display());
                 all.push(d);
                 dirs.push(stem);
             }
             let c = survey::analyze(&all, &dirs);
             export::write_json(&root.join("research-summary.json"), &c).map_err(|e| e.to_string())?;
             std::fs::write(root.join("research-summary.md"), report::render_summary(&c)).map_err(|e| e.to_string())?;
-            println!("wrote {}", root.join("research-summary.md").display());
+            println!("wrote {}", index::absolute(&root.join("research-summary.md")).display());
+            print_index(&root)?;
             Ok(ExitCode::SUCCESS)
         }
         Command::TelemetryRecord { out, host, port, duration_s } => {
@@ -442,7 +455,9 @@ fn run() -> Result<ExitCode, String> {
             std::fs::write(dir.join("validation-report.md"), report::render_validation(&v)).map_err(|e| e.to_string())?;
             println!("{}", v.status);
             println!("alignment {}: offset {:?} s, uncertainty {:?} s, drift {:?} ppm", v.sync.quality, v.sync.offset_s, v.sync.uncertainty_s, v.sync.drift_ppm);
-            println!("wrote {}", dir.join("validation-report.md").display());
+            println!("wrote {}", index::absolute(&dir.join("validation-report.md")).display());
+            print_index(&index::root_for(&dir))?;
+            println!("Run research on this replay to add the validation to its engineering findings.");
             Ok(if v.independent_validation { ExitCode::SUCCESS } else { ExitCode::from(1) })
         }
         Command::Survey { paths, out } => {

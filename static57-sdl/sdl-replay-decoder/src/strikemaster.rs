@@ -18,6 +18,8 @@ pub struct Databases {
     aircraft_by_slug: HashMap<String, String>,
     /// `(permanent id, designator)`.
     weapons: Vec<(String, String)>,
+    /// Aircraft id to its listed weapon ids.
+    compatible: HashMap<String, Vec<String>>,
     pub threats_present: bool,
 }
 
@@ -71,6 +73,9 @@ impl Databases {
                 if let Some(slug) = url.rsplit('/').next() {
                     db.aircraft_by_slug.insert(slug.to_string(), id.to_string());
                 }
+                if let Some(list) = a["compatible_weapons"].as_array() {
+                    db.compatible.insert(id.to_string(), list.iter().filter_map(|w| w.as_str().map(String::from)).collect());
+                }
             }
         }
         for w in read(WEAPONS_DB)?["weapons"].as_array().into_iter().flatten() {
@@ -83,6 +88,21 @@ impl Databases {
 
     pub fn aircraft_id(&self, vehicle: &str) -> Option<&str> {
         self.aircraft_by_slug.get(vehicle).map(|s| s.as_str())
+    }
+
+    pub fn aircraft_count(&self) -> usize {
+        self.aircraft_by_slug.len()
+    }
+
+    /// Database names sharing this weapon's designator.
+    pub fn weapon_match_count(&self, name: &str) -> usize {
+        let core = weapon_core(name);
+        self.weapons.iter().filter(|(_, n)| *n == core).count()
+    }
+
+    /// Whether an aircraft entry lists a weapon. `None` if it lists nothing.
+    pub fn aircraft_carries(&self, aircraft: &str, weapon: &str) -> Option<bool> {
+        self.compatible.get(aircraft).map(|l| l.iter().any(|w| w == weapon))
     }
 
     /// Permanent weapon id when exactly one database name matches.

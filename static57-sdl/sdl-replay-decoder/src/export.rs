@@ -59,16 +59,21 @@ pub fn export_packets(input: &Path, file: &[u8], out_dir: &Path, opts: Options) 
 pub fn export_research(input: &Path, file: &[u8], out_dir: &Path, db: Option<&crate::strikemaster::Databases>) -> io::Result<crate::research::ResearchData> {
     fs::create_dir_all(out_dir)?;
     let name = input.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let run = crate::research::run(&name, file, db)?;
+    let mut run = crate::research::run(&name, file, db)?;
+    // A validation written earlier for this replay joins its findings.
+    let validation = fs::read(out_dir.join(crate::index::VALIDATION_FILE)).ok().and_then(|b| serde_json::from_slice(&b).ok());
+    if let Some(v) = crate::engineering::matching_validation(validation, &run.data.replay.sha256) {
+        run.data.engineering = crate::engineering::analyze(&run.data, db, Some(&v));
+    }
     let input_canon = fs::canonicalize(input).ok();
-    for f in ["research-report.md", "research-data.json", "weapon_tracks.jsonl"] {
+    for f in [crate::research::REPORT_FILE, crate::research::DATA_FILE, "weapon_tracks.jsonl"] {
         let p = out_dir.join(f);
         if p.exists() && fs::canonicalize(&p).ok() == input_canon {
             return Err(io::Error::other("refusing to overwrite the input replay"));
         }
     }
-    write_json(&out_dir.join("research-data.json"), &run.data)?;
-    fs::write(out_dir.join("research-report.md"), crate::report::render(&run.data))?;
+    write_json(&out_dir.join(crate::research::DATA_FILE), &run.data)?;
+    fs::write(out_dir.join(crate::research::REPORT_FILE), crate::report::render(&run.data))?;
     let mut w = BufWriter::new(File::create(out_dir.join("weapon_tracks.jsonl"))?);
     for (id, samples) in &run.weapon_samples {
         serde_json::to_writer(&mut w, &serde_json::json!({ "weapon_id": id, "samples": samples }))?;

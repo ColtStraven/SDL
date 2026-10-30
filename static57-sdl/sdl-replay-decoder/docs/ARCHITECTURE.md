@@ -55,6 +55,8 @@
 | `sync` | Capture-to-replay time alignment by cockpit clock and motion, with cross-checks |
 | `validate` | Replay association, flight-state comparison, altimeter units, map fit, field scan |
 | `simcapture` | Labelled synthetic captures for software tests |
+| `engineering` | Strike Master engineering findings for one replay, as evidence-gated rules with stable ids |
+| `index` | `INDEX.md` and `LATEST.md`, built by reading every report folder, tolerant of older schemas |
 | `lab` | One extraction pass over a replay |
 | `measure` | Pure measurement functions: statistics, maneuver figures, transitions, gaps, robust z-score |
 | `research` | Per-replay `ResearchData`: tracks, identity, anomalies, missing data, findings, questions, coverage |

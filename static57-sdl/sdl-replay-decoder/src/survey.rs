@@ -7,7 +7,7 @@ use crate::strikemaster::Proposal;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const SUMMARY_SCHEMA: &str = "static57.sdl.research-summary/0.4";
+pub const SUMMARY_SCHEMA: &str = "static57.sdl.research-summary/0.5";
 /// Robust z-score beyond which a replay is listed as an outlier.
 pub const OUTLIER_Z: f64 = 3.5;
 /// Fewest samples for a shot to enter flight statistics: shorter tracks are
@@ -15,6 +15,206 @@ pub const OUTLIER_Z: f64 = 3.5;
 pub const MIN_SHOT_SAMPLES: u64 = 5;
 /// Fewest comparisons for a replay to enter a consistency range.
 pub const MIN_COMPARISONS: u64 = 200;
+
+/// Fuel burn across recordings of one aircraft.
+#[derive(Debug, Clone, Serialize)]
+pub struct VehicleFuel {
+    pub vehicle: String,
+    pub recordings: u64,
+    pub stretches: u64,
+    pub seconds: f64,
+    pub burn_kg_s_p10: Option<f64>,
+    pub burn_kg_s_p50: Option<f64>,
+    pub burn_kg_s_p90: Option<f64>,
+    pub matched_to_8111: bool,
+}
+
+/// Maximum observed values by aircraft and loadout.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigurationRow {
+    pub vehicle: String,
+    pub loadout: String,
+    pub recordings: u64,
+    pub tracked_seconds: f64,
+    pub max_ground_speed_mps: Option<f64>,
+    pub max_altitude_m: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GameVersionRow {
+    pub game_version: String,
+    pub replays: u64,
+    pub replays_with_author: u64,
+    pub gear_agreement: Option<f64>,
+    pub compass_largest_median_deg: Option<f64>,
+}
+
+/// One cross-replay research opportunity.
+#[derive(Debug, Clone, Serialize)]
+pub struct Opportunity {
+    pub opportunity_id: &'static str,
+    pub area: &'static str,
+    pub priority: crate::engineering::Priority,
+    /// `single_sortie` or `multiple_recordings`.
+    pub scope: &'static str,
+    pub recordings: u64,
+    pub observation: String,
+    pub coverage: String,
+    pub uncertainty: String,
+    pub recommended_follow_up: String,
+}
+
+/// Patterns across the corpus, for Strike Master review.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ResearchOpportunities {
+    pub replays_compared_with_8111: u64,
+    pub findings_by_priority: BTreeMap<String, u64>,
+    pub findings_by_subsystem: BTreeMap<String, u64>,
+    pub fuel: Vec<VehicleFuel>,
+    pub configurations: Vec<ConfigurationRow>,
+    pub game_versions: Vec<GameVersionRow>,
+    pub opportunities: Vec<Opportunity>,
+}
+
+fn scope_of(recordings: u64) -> &'static str {
+    if recordings >= 2 { "multiple_recordings" } else { "single_sortie" }
+}
+
+fn quantile(sorted: &[f64], p: f64) -> Option<f64> {
+    (!sorted.is_empty()).then(|| round3(sorted[((sorted.len() - 1) as f64 * p).round() as usize]))
+}
+
+fn research_opportunities(data: &[ResearchData], weapons: &[WeaponSummary]) -> ResearchOpportunities {
+    use crate::engineering::Priority::{Low, Medium};
+    let mut o = ResearchOpportunities::default();
+    let mut fuel: BTreeMap<String, (BTreeSet<String>, Vec<f64>, f64)> = BTreeMap::new();
+    let mut configs: BTreeMap<(String, String), (BTreeSet<String>, f64, Option<f64>, Option<f64>)> = BTreeMap::new();
+    let mut versions: BTreeMap<String, (u64, u64, u64, u64, Option<f64>)> = BTreeMap::new();
+    let mut nibbles: BTreeMap<&str, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
+    let mut feet: BTreeSet<String> = BTreeSet::new();
+    let (mut feet_recordings, mut clock_off, mut clock_checked) = (0u64, 0u64, 0u64);
+    let mut time_by_vehicle: BTreeMap<String, f64> = BTreeMap::new();
+    let mut validated: BTreeSet<String> = BTreeSet::new();
+    let bigger = |a: Option<f64>, b: Option<f64>| match (a, b) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (x, y) => x.or(y),
+    };
+    for d in data {
+        let sha = &d.replay.sha256;
+        let e = &d.engineering;
+        for f in &e.findings {
+            *o.findings_by_priority.entry(f.priority.label().to_string()).or_default() += 1;
+            *o.findings_by_subsystem.entry(f.subsystem.to_string()).or_default() += 1;
+        }
+        let compared = e.findings.iter().any(|f| f.telemetry_reference.as_ref().is_some_and(|t| t.independent_validation));
+        o.replays_compared_with_8111 += compared as u64;
+        let y = &d.systems;
+        let v = versions.entry(d.replay.game_version.clone()).or_default();
+        v.0 += 1;
+        v.1 += d.author.is_some() as u64;
+        v.2 += y.gear_vs_cockpit.n;
+        v.3 += y.gear_vs_cockpit.agree;
+        if y.compass.n >= 100 {
+            v.4 = bigger(v.4, y.compass.median_error_deg.map(f64::abs));
+        }
+        if let (Some(r), true) = (y.clock.rate, y.clock.span_s >= 300.0) {
+            clock_checked += 1;
+            clock_off += ((r - 1.0).abs() > 1e-4) as u64;
+        }
+        for s in &y.fuel {
+            if s.duration_s >= 120.0 && s.airborne_fraction >= 0.5 && s.rate_per_s < 0.0 {
+                let e = fuel.entry(s.vehicle.clone()).or_default();
+                e.0.insert(sha.clone());
+                e.1.push(-s.rate_per_s);
+                e.2 += s.duration_s;
+            }
+        }
+        let Some(a) = &d.author else { continue };
+        let vehicle = a.vehicles.first().cloned().unwrap_or_else(|| "unresolved".to_string());
+        if compared {
+            validated.insert(vehicle.clone());
+        }
+        *time_by_vehicle.entry(vehicle.clone()).or_default() += a.tracked_seconds;
+        if d.cockpit_validation.altimeter_unit == Some("ft") {
+            feet.insert(vehicle.clone());
+            feet_recordings += 1;
+        }
+        for (k, name) in [("n5", "nibble 5"), ("n8", "nibble 8"), ("n10", "nibble 10")] {
+            if y.nibble_nonzero.get(k).is_some_and(|n| *n >= 50) {
+                let e = nibbles.entry(name).or_default();
+                e.0.insert(sha.clone());
+                e.1.insert(vehicle.clone());
+            }
+        }
+        for t in d.tracks.iter().filter(|t| t.role == "author") {
+            let key = (t.identity.vehicle.clone().unwrap_or_else(|| "unresolved".to_string()), t.identity.loadout.clone().unwrap_or_else(|| "unknown".to_string()));
+            let e = configs.entry(key).or_default();
+            e.0.insert(sha.clone());
+            e.1 += t.duration_s;
+            e.2 = bigger(e.2, t.speed_mps.max);
+            e.3 = bigger(e.3, t.altitude_m.max);
+        }
+    }
+    for (vehicle, (recs, mut burns, seconds)) in fuel {
+        burns.sort_by(f64::total_cmp);
+        o.fuel.push(VehicleFuel {
+            matched_to_8111: crate::systems::FUEL_MASS_MATCHED.contains(&vehicle.as_str()),
+            vehicle,
+            recordings: recs.len() as u64,
+            stretches: burns.len() as u64,
+            seconds: round3(seconds),
+            burn_kg_s_p10: quantile(&burns, 0.1),
+            burn_kg_s_p50: quantile(&burns, 0.5),
+            burn_kg_s_p90: quantile(&burns, 0.9),
+        });
+    }
+    o.fuel.sort_by(|a, b| b.recordings.cmp(&a.recordings).then(b.seconds.total_cmp(&a.seconds)));
+    for ((vehicle, loadout), (recs, seconds, speed, alt)) in configs {
+        o.configurations.push(ConfigurationRow { vehicle, loadout, recordings: recs.len() as u64, tracked_seconds: round3(seconds), max_ground_speed_mps: speed, max_altitude_m: alt });
+    }
+    for (game_version, (replays, with_author, n, agree, compass)) in versions {
+        o.game_versions.push(GameVersionRow { game_version, replays, replays_with_author: with_author, gear_agreement: (n > 0).then(|| round3(agree as f64 / n as f64)), compass_largest_median_deg: compass.map(round3) });
+    }
+
+    let version_count = o.game_versions.len();
+    let versions_checked = o.game_versions.iter().filter(|g| g.gear_agreement.is_some() || g.compass_largest_median_deg.is_some()).count();
+    let mut add = |opportunity_id, area, priority, recordings: u64, observation: String, coverage: String, uncertainty: &str, recommended_follow_up: &str| {
+        o.opportunities.push(Opportunity { opportunity_id, area, priority, scope: scope_of(recordings), recordings, observation, coverage, uncertainty: uncertainty.to_string(), recommended_follow_up: recommended_follow_up.to_string() });
+    };
+    let total_recordings: u64 = o.fuel.iter().map(|f| f.recordings).max().unwrap_or(0);
+    if !o.fuel.is_empty() {
+        let repeated = o.fuel.iter().filter(|f| f.recordings >= 2).count();
+        let spread: Vec<String> = o.fuel.iter().filter(|f| f.recordings >= 2).take(3).map(|f| format!("{} {} to {} kg/s", f.vehicle, report_num(f.burn_kg_s_p10), report_num(f.burn_kg_s_p90))).collect();
+        add("SMO-FUEL", "Aircraft fuel consumption", Medium, total_recordings, format!("{repeated} aircraft have flight fuel data from two or more recordings. Examples of the p10 to p90 burn range: {}.", if spread.is_empty() { "none yet".to_string() } else { spread.join(", ") }), format!("{} aircraft, {} flight stretches.", o.fuel.len(), o.fuel.iter().map(|f| f.stretches).sum::<u64>()), "Averages over combat flying. Fuel mass in kg is matched to 8111 on three aircraft only, and assumed on the rest.", "Fit burn against throttle and altitude for the aircraft with the most recordings, then compare with Strike Master's fuel logic.");
+    }
+    let multi: BTreeMap<&str, usize> = o.configurations.iter().fold(BTreeMap::new(), |mut m, c| {
+        *m.entry(c.vehicle.as_str()).or_default() += 1;
+        m
+    });
+    let varied = multi.values().filter(|n| **n >= 2).count();
+    add("SMO-CONFIG", "Performance by configuration", Low, o.configurations.iter().map(|c| c.recordings).max().unwrap_or(0), format!("{varied} aircraft were flown with more than one loadout."), format!("{} aircraft and loadout pairs.", o.configurations.len()), "Combat peaks are lower bounds on capability, not performance limits. Stores carried at any moment are unknown.", "Compare the same aircraft across loadouts once acceleration runs exist. Do not treat the maximums as limits.");
+    let compass_worst = o.game_versions.iter().filter_map(|g| g.compass_largest_median_deg).fold(None, |a: Option<f64>, x| Some(a.map_or(x, |y| y.max(x))));
+    add("SMO-INSTR", "Navigation and instruments", Medium, feet_recordings, format!("Compass minus (heading + 90) has a largest replay median of {} deg. {} recordings across {} aircraft use a feet altimeter. {clock_off} of {clock_checked} long recordings show a clock rate more than 1e-4 from 1.", report_num(compass_worst), feet_recordings, feet.len()), format!("{} replays compared with real 8111 data.", o.replays_compared_with_8111), "Compass and clock checks are internal to the replay. The 3.28 ft/m relation has not been seen in 8111.", "Capture one feet-altimeter aircraft with 8111 to settle the HUD foot conversion.");
+    let gaps: Vec<String> = nibbles.iter().map(|(k, v)| format!("{k}: {} recordings, {} aircraft", v.0.len(), v.1.len())).collect();
+    add("SMO-FIELDS", "Aircraft-system decoding gaps", Medium, nibbles.values().map(|v| v.0.len() as u64).max().unwrap_or(0), format!("Fields with no established meaning were active: {}.", if gaps.is_empty() { "none".to_string() } else { gaps.join("; ") }), "Author aircraft only.".to_string(), "No meaning is assigned without an independent signal.", "Capture 8111 on a flight that exercises these fields, then let `telemetry-validate` score them.");
+    let shot_weapons: Vec<&WeaponSummary> = weapons.iter().filter(|w| w.shots >= 3).collect();
+    if !shot_weapons.is_empty() {
+        let top: Vec<String> = shot_weapons.iter().take(3).map(|w| format!("{} ({} shots)", w.weapon_name, w.shots)).collect();
+        add("SMO-WEAPON", "Measured weapon performance", Medium, data.iter().filter(|d| d.weapons.events.iter().any(|e| e.weapon_name.is_some())).count() as u64, format!("{} weapon types have 3 or more observed shots, led by {}.", shot_weapons.len(), top.join(", ")), format!("{} named weapon types.", weapons.len()), "Shots are observed in combat. Unknown outcomes are not misses. No launch-envelope boundary or success rate is implied.", "Compare time of flight and speed profiles offline with Strike Master's weapon model, by launch condition.");
+    }
+    add("SMO-CALIB", "Model calibration data", Low, data.iter().filter(|d| !d.systems.load_factor.is_empty()).count() as u64, format!("Load factor from position, throttle and fuel are available together on {} replays with cockpit data.", data.iter().filter(|d| d.systems.samples_with_cockpit > 0).count()), "Author aircraft only.".to_string(), "Replay agreement validates decoding, not real-world aircraft realism. Any model built on this is extrapolation until validated.", "Choose one aircraft with many recordings as a calibration candidate.");
+    let comparable = versions_checked;
+    add("SMO-VERSION", "Game-version differences", Low, data.len() as u64, format!("{} game versions are covered, and {comparable} of them have instrument checks to compare. Their figures are in the table below. No statistical test of a difference was run.", version_count), format!("{} replays.", data.len()), "Versions differ by build number only, and the game version field itself is EXPERIMENTAL.", "Re-run this comparison after the next major game update.");
+    let mut untested: Vec<(String, f64)> = time_by_vehicle.into_iter().filter(|(v, _)| !validated.contains(v)).collect();
+    untested.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let names: Vec<String> = untested.iter().take(4).map(|(v, t)| format!("{v} ({t:.0} s)")).collect();
+    add("SMO-CONTROL", "Controlled validation", Medium, o.replays_compared_with_8111, format!("{} aircraft have real 8111 comparisons. The most-flown aircraft without one are {}.", validated.len(), if names.is_empty() { "none".to_string() } else { names.join(", ") }), format!("{} of {} replays compared with 8111.", o.replays_compared_with_8111, data.len()), "Every field meaning and fuel figure outside those aircraft is an extrapolation.", "Leave the existing recorder running during ordinary flights of these aircraft. No new test procedure is needed.");
+    o
+}
+
+fn report_num(v: Option<f64>) -> String {
+    v.map_or("unavailable".to_string(), |x| format!("{x}"))
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct VehicleLoadFactor {
@@ -211,6 +411,7 @@ pub struct CrossReplay {
     pub outliers: Vec<Outlier>,
     pub anomaly_totals: BTreeMap<String, u64>,
     pub systems: SystemsCorpus,
+    pub research_opportunities: ResearchOpportunities,
     pub recommendations: Vec<Recommendation>,
 }
 
@@ -422,6 +623,7 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
         });
     }
 
+    let research_opportunities = research_opportunities(data, &weapons);
     CrossReplay {
         schema: SUMMARY_SCHEMA,
         decoder_name: DECODER_NAME,
@@ -434,6 +636,7 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
         consistency,
         outliers,
         anomaly_totals,
+        research_opportunities,
         systems: systems_corpus(data),
         recommendations,
     }

@@ -52,7 +52,7 @@ Replays are opened read-only. Output is never written next to the replay unless 
 
 ```
 cargo test                                   # synthetic fixtures (110 tests)
-cargo test --release -- --include-ignored    # plus 3 genuine-replay tests (160 total)
+cargo test --release -- --include-ignored    # plus 3 genuine-replay tests (184 total)
 ```
 
 The genuine-replay tests read `SDL_REPLAY_DIR`, or `%LOCALAPPDATA%\WarThunder\Replays` when that variable is unset. Passing the synthetic fixtures alone does **not** demonstrate War Thunder compatibility.

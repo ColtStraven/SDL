@@ -16,6 +16,10 @@ use crate::tracks::Dist;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+/// Aircraft whose cockpit id 195 was matched to 8111 `Mfuel, kg`.
+pub const FUEL_MASS_MATCHED: [&str; 3] = ["saab_a32a_red_adam", "saab_j21a_1", "ffa_p16"];
+/// Speed above which a sample counts as airborne flight in report summaries.
+pub const AIRBORNE_SPEED_MPS: f64 = 60.0;
 /// Scale of `Engine::boost_raw`: full scale reads 1.1.
 pub const BOOST_FULL_SCALE: f64 = 32767.0;
 pub const BOOST_MAX: f64 = 1.1;
@@ -238,6 +242,14 @@ pub struct FuelObservation {
     /// kg per second. Negative while burning.
     pub rate_per_s: f64,
     pub refilled: bool,
+    /// Averages over the stretch. `None` where the field is absent.
+    pub mean_throttle: Option<f64>,
+    pub mean_altitude_m: Option<f64>,
+    pub mean_speed_mps: Option<f64>,
+    /// Share of samples above the airborne speed.
+    pub airborne_fraction: f64,
+    /// Share of samples with throttle above 100%.
+    pub above_100_percent_fraction: f64,
     pub evidence: Evidence,
 }
 
@@ -260,6 +272,21 @@ pub struct SystemsReport {
     pub load_factor: Vec<LoadFactorCheck>,
     pub fuel: Vec<FuelObservation>,
     pub nibble_nonzero: BTreeMap<String, u64>,
+    /// Samples carrying each cockpit parameter id.
+    pub cockpit_id_samples: BTreeMap<u16, u64>,
+    pub airborne_seconds: f64,
+    /// World speed above the airborne speed. This is ground speed.
+    pub airborne_speed_mps: Dist,
+    pub airborne_altitude_m: Dist,
+}
+
+fn mean(v: impl Iterator<Item = f64>) -> Option<f64> {
+    let (mut sum, mut n) = (0.0, 0u64);
+    for x in v {
+        sum += x;
+        n += 1;
+    }
+    (n > 0).then(|| sum / n as f64)
 }
 
 fn nibble_name(i: usize) -> String {
@@ -284,10 +311,21 @@ pub fn analyze(samples: &[AuthorSample]) -> SystemsReport {
         load_factor: Vec::new(),
         fuel: Vec::new(),
         nibble_nonzero: BTreeMap::new(),
+        cockpit_id_samples: BTreeMap::new(),
+        airborne_seconds: 0.0,
+        airborne_speed_mps: Dist::of(Vec::new()),
+        airborne_altitude_m: Dist::of(Vec::new()),
     };
+    let airborne: Vec<&AuthorSample> = samples.iter().filter(|s| s.speed_mps >= AIRBORNE_SPEED_MPS).collect();
+    r.airborne_seconds = samples.windows(2).filter(|w| w[0].uid == w[1].uid && w[0].speed_mps >= AIRBORNE_SPEED_MPS && w[1].t_ms - w[0].t_ms <= 1000).map(|w| (w[1].t_ms - w[0].t_ms) as f64 / 1000.0).sum();
+    r.airborne_speed_mps = Dist::of(airborne.iter().map(|s| s.speed_mps).collect());
+    r.airborne_altitude_m = Dist::of(airborne.iter().map(|s| s.position[1]).collect());
     let (mut throttle, mut compass, mut clock) = (Vec::new(), Vec::new(), Vec::new());
     for (i, s) in samples.iter().enumerate() {
         *r.engine_counts.entry(s.engines).or_default() += 1;
+        for (id, _) in &s.cockpit {
+            *r.cockpit_id_samples.entry(*id).or_default() += 1;
+        }
         if let Some(e) = s.engine_state {
             *r.engine_states.entry(e).or_default() += 1;
         }
@@ -368,7 +406,21 @@ pub fn analyze(samples: &[AuthorSample]) -> SystemsReport {
     let close = |r: &mut SystemsReport, a: usize, b: usize, q0: f64, q1: f64, up: bool| {
         let dt = (samples[b].t_ms - samples[a].t_ms) as f64 / 1000.0;
         if dt >= 30.0 {
-            r.fuel.push(FuelObservation { vehicle: samples[a].vehicle.clone().unwrap_or_default(), start: q0, end: q1, duration_s: dt, rate_per_s: (q1 - q0) / dt, refilled: up, evidence: Evidence::Experimental });
+            let span = &samples[a..=b];
+            r.fuel.push(FuelObservation {
+                vehicle: samples[a].vehicle.clone().unwrap_or_default(),
+                start: q0,
+                end: q1,
+                duration_s: dt,
+                rate_per_s: (q1 - q0) / dt,
+                refilled: up,
+                mean_throttle: mean(span.iter().filter_map(|s| s.cockpit(id::THROTTLE))),
+                mean_altitude_m: mean(span.iter().map(|s| s.position[1])),
+                mean_speed_mps: mean(span.iter().map(|s| s.speed_mps)),
+                airborne_fraction: span.iter().filter(|s| s.speed_mps >= AIRBORNE_SPEED_MPS).count() as f64 / span.len() as f64,
+                above_100_percent_fraction: span.iter().filter(|s| s.boost_raw.is_some()).count() as f64 / span.len() as f64,
+                evidence: Evidence::Experimental,
+            });
         }
     };
     let mut last: Option<(usize, f64)> = None;
