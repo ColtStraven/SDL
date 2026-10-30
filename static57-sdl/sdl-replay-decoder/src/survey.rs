@@ -7,7 +7,7 @@ use crate::strikemaster::Proposal;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const SUMMARY_SCHEMA: &str = "static57.sdl.research-summary/0.2";
+pub const SUMMARY_SCHEMA: &str = "static57.sdl.research-summary/0.3";
 /// Robust z-score beyond which a replay is listed as an outlier.
 pub const OUTLIER_Z: f64 = 3.5;
 /// Fewest samples for a shot to enter flight statistics: shorter tracks are
@@ -29,6 +29,16 @@ pub struct Totals {
     pub weapons_by_author: u64,
     pub weapons_named: u64,
     pub kills: u64,
+    pub launchers_verified: u64,
+    pub targets_seeker: u64,
+    pub targets_kill_record: u64,
+    pub launch_geometry: u64,
+    pub complete_records: u64,
+    pub outcome_classes: BTreeMap<String, u64>,
+    /// Target method: claims on kill-linked weapons, and how many named the victim.
+    pub target_method_checks: BTreeMap<String, (u64, u64)>,
+    pub name_holdout_correct: u64,
+    pub name_holdout_attempted: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,7 +78,7 @@ pub struct WeaponSummary {
     pub weapon_name: String,
     pub s57_weapon_id: Option<String>,
     pub shots: u64,
-    pub kill_linked: u64,
+    pub confirmed_kills: u64,
     pub launchers: Vec<String>,
     pub time_of_flight_s: Stat,
     pub ground_range_m: Stat,
@@ -166,6 +176,22 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
         totals.weapons_by_author += d.weapons.stats.weapons_by_author;
         totals.weapons_named += d.weapons.stats.weapons_named;
         totals.kills += d.combat.kills_seen;
+        let w = &d.weapons.stats;
+        totals.launchers_verified += w.launchers_exact;
+        totals.targets_seeker += w.targets_seeker;
+        totals.targets_kill_record += w.targets_kill_record;
+        totals.launch_geometry += w.geometry_available;
+        totals.complete_records += d.strike_master.proposals.iter().filter(|p| p.complete_record).count() as u64;
+        totals.name_holdout_correct += w.holdout_type_id_correct;
+        totals.name_holdout_attempted += w.holdout_type_id_attempted;
+        for (k, v) in &w.outcome_classes {
+            *totals.outcome_classes.entry(k.to_string()).or_default() += v;
+        }
+        for (k, v) in &w.target_eval {
+            let e = totals.target_method_checks.entry(k.to_string()).or_default();
+            e.0 += v.0;
+            e.1 += v.1;
+        }
         if let Some(a) = &d.author {
             totals.author_tracked_seconds += a.tracked_seconds;
             for v in &a.vehicles {
@@ -235,7 +261,7 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
             WeaponSummary {
                 s57_weapon_id: ps.iter().find_map(|p| p.s57_weapon_id.clone()),
                 shots: ps.len() as u64,
-                kill_linked: ps.iter().filter(|p| p.outcome == "kill_linked").count() as u64,
+                confirmed_kills: ps.iter().filter(|p| p.outcome == "confirmed_kill").count() as u64,
                 launchers: launchers.into_iter().collect(),
                 time_of_flight_s: plain_stat(full().filter_map(|p| p.time_of_flight_s).collect()),
                 ground_range_m: plain_stat(full().map(|p| p.ground_range_m).collect()),
@@ -274,12 +300,16 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
 
     let mut recommendations = vec![
         Recommendation {
-            title: "Controlled LAR shots",
-            detail: "Fly a test mission firing one missile type at a non-maneuvering target across a grid of launch range, altitude and aspect, including deliberate misses. Combat shots have no established target unless they killed, so only a grid gives the envelope edge.".to_string(),
+            title: "Independent 8111 validation",
+            detail: "Record the controlled flight in docs/CONTROLLED_TEST_PROCEDURE.md. It gives independent checks of flight state and launch timing, and ties X/Z to map north.".to_string(),
         },
         Recommendation {
-            title: "Synchronized 8111 recording",
-            detail: "One short flight with 8111 capture and MARK events, following docs/TELEMETRY_8111.md. This fixes map north for X/Z and gives an independent instrument check.".to_string(),
+            title: "Flight-control and engine decoding",
+            detail: "Validate the raw control bytes and engine fields against 8111, then add them to flight dynamics reports.".to_string(),
+        },
+        Recommendation {
+            title: "Controlled LAR shots",
+            detail: "Fly a test mission firing one missile type at a non-maneuvering target across a grid of launch range, altitude and aspect. This records launch conditions only: SDL has no validated miss classification, so it is not a LAR calibration.".to_string(),
         },
         Recommendation {
             title: "Level acceleration and sustained-turn runs",

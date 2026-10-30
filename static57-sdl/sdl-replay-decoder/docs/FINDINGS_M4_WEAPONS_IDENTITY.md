@@ -1,6 +1,6 @@
 # S57-003 SDL — Identity, Battle Log and Weapon Findings (Milestone 4)
 
-Decoder: `sdl-replay-decoder` 0.3.0. Date: 2026-10-30. Weapon naming was extended in 0.4.0: see [FINDINGS_M5_WEAPON_TYPE.md](FINDINGS_M5_WEAPON_TYPE.md), which supersedes the naming figures and the first bias limit below.
+Decoder: `sdl-replay-decoder` 0.3.0. Date: 2026-10-30. Proximity launcher attribution was replaced in 0.5.0: see [FINDINGS_M6_ENGAGEMENTS.md](FINDINGS_M6_ENGAGEMENTS.md). Weapon naming was extended in 0.4.0: see [FINDINGS_M5_WEAPON_TYPE.md](FINDINGS_M5_WEAPON_TYPE.md), which supersedes the naming figures and the first bias limit below.
 Evidence base: 42 genuine client replays (27 from Milestones 1–3 plus 15 recorded 2026-10-29, game version field 2.59.0.92), all format `0x00018C1C`. See [COMPATIBILITY.md](COMPATIBILITY.md).
 Reproduce: `sdl-replay-decoder research-survey <Replays folder>`; research probes are in `examples/`.
 

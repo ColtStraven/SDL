@@ -50,12 +50,9 @@ pub const MAX_REACH_SLACK_M: f64 = 1_500.0;
 /// A second weapon within this of the best distance makes a kill ambiguous.
 pub const AMBIGUOUS_RATIO: f64 = 1.5;
 pub const AMBIGUOUS_SLACK_M: f64 = 30.0;
-/// A validated miss must pass no closer than this...
-pub const MISS_MIN_M: f64 = 100.0;
-/// ...with the target still flying this long after the weapon ended.
-pub const MISS_SURVIVAL_MS: u32 = 10_000;
-/// Stored separation points per weapon.
-pub const SEPARATION_POINTS: usize = 12;
+/// A creation record this long after launch describes a weapon already in
+/// flight, so its position is not a launch position.
+pub const LATE_CREATION_MS: u32 = 2_000;
 /// Silence after which an entity id is treated as a new weapon.
 pub const REUSE_GAP_MS: u32 = 15_000;
 
@@ -98,6 +95,8 @@ pub struct Trajectory {
     pub time_of_flight_source: &'static str,
     /// Largest interval between samples: the uncertainty of the end time.
     pub max_sample_interval_s: Option<f64>,
+    /// First seen well after launch: launch position and geometry withheld.
+    pub launch_late: bool,
     pub launch_position_m: Option<[f32; 3]>,
     pub launch_altitude_m: Option<f64>,
     pub first_speed_mps: f64,
@@ -113,8 +112,9 @@ pub struct Trajectory {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Outcome {
-    /// `confirmed_kill`, `confirmed_damage`, `confirmed_hit`,
-    /// `validated_miss`, `ambiguous`, or `unknown`.
+    /// `confirmed_kill`, `confirmed_damage`, `confirmed_hit`, `ambiguous`, or
+    /// `unknown`. A weapon disappearing establishes nothing, so a shot with no
+    /// supporting record stays `unknown`.
     pub class: &'static str,
     pub basis: Option<String>,
     /// `kill_linked` when a kill record is attached, else `unknown`.
@@ -149,8 +149,6 @@ pub struct Target {
     pub observations: Option<u32>,
     /// A designation record's uid: unconfirmed, it failed validation.
     pub designated_candidate_uid: Option<u16>,
-    /// Point held in the launcher's designation records at launch.
-    pub designated_point_m: Option<[f32; 3]>,
     pub evidence: Evidence,
 }
 
@@ -170,13 +168,6 @@ pub struct LaunchGeometry {
     /// head-on, 180 is tail-on.
     pub target_aspect_deg: Option<f64>,
     pub evidence: Evidence,
-}
-
-/// Separation from the established target at one weapon sample.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub struct Separation {
-    pub time_since_launch_s: f64,
-    pub distance_m: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -206,8 +197,6 @@ pub struct WeaponEvent {
     pub trajectory: Trajectory,
     pub target: Target,
     pub geometry: Option<LaunchGeometry>,
-    pub separation: Vec<Separation>,
-    pub closest_approach_m: Option<f64>,
     pub outcome: Outcome,
     pub first_packet_index: u64,
 }
@@ -321,7 +310,7 @@ pub fn base_name(n: &str) -> &str {
 
 /// Gun rounds never appear in `ShellsData`: a kill by one is not a store kill.
 pub fn is_gun_round(n: &str) -> bool {
-    const ROUND: [&str; 12] = ["ap", "api", "aphe", "he", "hei", "i", "t", "frag", "ball", "apit", "heat", "hvap"];
+    const ROUND: [&str; 16] = ["ap", "api", "aphe", "he", "hei", "i", "t", "frag", "ball", "apit", "heat", "hvap", "apcr", "apds", "apfsds", "fs"];
     if n.split('_').all(|t| ROUND.contains(&t.to_ascii_lowercase().as_str())) {
         return true;
     }
@@ -510,6 +499,8 @@ impl Collector {
         struct Prep {
             launcher: Launcher,
             origin: [f64; 3],
+            launch_pos: Option<[f32; 3]>,
+            late: bool,
             launch_time_ms: Option<u32>,
             launch_time_source: &'static str,
             kill: Option<(usize, f64)>,
@@ -527,11 +518,13 @@ impl Collector {
                     _ => (None, "unavailable"),
                 };
                 let at = created.map_or(first.timestamp_ms, |c| c.t);
+                let late = created.zip(launch_time_ms).is_some_and(|(c, lt)| c.t > lt + LATE_CREATION_MS);
+                let launch_pos = created.and_then(|c| c.position).filter(|_| !late);
                 let entity = created.and_then(|c| c.owner).and_then(|o| registry.entity(o, at));
                 let launcher = match entity {
                     Some(u) => {
                         let state = u.uid.filter(|_| u.kind == "aircraft").and_then(|uid| history.state_at(uid, at));
-                        let pos = created.and_then(|c| c.position).map(p64);
+                        let pos = launch_pos.map(p64);
                         Launcher {
                             uid: u.uid,
                             vehicle: u.vehicle.clone(),
@@ -562,9 +555,9 @@ impl Collector {
                         status: if created.is_some() { "entity_not_found" } else { "no_creation_record" },
                     },
                 };
-                let origin = p64(created.and_then(|c| c.position).unwrap_or(first.position_m));
+                let origin = p64(launch_pos.unwrap_or(first.position_m));
                 let path_m = tr.samples.windows(2).map(|w| dist(p64(w[0].position_m), p64(w[1].position_m))).sum();
-                Prep { launcher, origin, launch_time_ms, launch_time_source, kill: None, kill_ambiguous: false, path_m }
+                Prep { launcher, origin, launch_pos, late, launch_time_ms, launch_time_source, kill: None, kill_ambiguous: false, path_m }
             })
             .collect();
 
@@ -689,7 +682,8 @@ impl Collector {
                 }
             })
             .collect();
-        let kill_name = |p: &Prep| p.kill.and_then(|(ki, _)| self.kills[ki].weapon.clone());
+        // An ambiguous link does not say which weapon the record names.
+        let kill_name = |p: &Prep| p.kill.filter(|_| !p.kill_ambiguous).and_then(|(ki, _)| self.kills[ki].weapon.clone());
         let mut evidence = NameEvidence::default();
         for (p, q) in preps.iter().zip(&queries) {
             if let Some(n) = kill_name(p) {
@@ -718,7 +712,7 @@ impl Collector {
             let s = &tr.samples;
             let (first, last) = (s[0], *s.last().unwrap());
             let created = tr.created.as_ref();
-            let launch_pos = created.and_then(|c| c.position);
+            let launch_pos = p.launch_pos;
             let end = p64(last.position_m);
             let mut path = 0.0;
             let mut max_gap = 0u32;
@@ -728,7 +722,6 @@ impl Collector {
             }
             let tof = last.time_since_launch_s.filter(|t| *t >= 0.0).map(|t| t as f64);
             let near = history.nearest(last.timestamp_ms, end);
-            let launcher_aircraft = p.launcher.uid.filter(|_| p.launcher.kind == Some("aircraft"));
 
             // Target: seeker observation first, then the kill record.
             let seeker_claims: Vec<&TargetClaim> = claims.iter().filter(|c| c.method != "launcher_designation").collect();
@@ -736,9 +729,6 @@ impl Collector {
             let first_claim = seeker_claims.first().copied();
             let agree = seeker_claims.iter().all(|c| Some(c.uid) == first_claim.map(|f| f.uid));
             let kill_ref = p.kill.map(|(ki, _)| &self.kills[ki]);
-            let designated_point = launcher_aircraft.zip(p.launch_time_ms).and_then(|(u, lt)| {
-                self.designated_points.get(&u)?.iter().rfind(|d| d.0 <= lt + DESIGNATION_AFTER_MS && d.0 + DESIGNATION_BEFORE_MS >= lt).map(|d| d.2)
-            });
             let mut target = Target {
                 status: "unavailable",
                 uid: None,
@@ -748,7 +738,6 @@ impl Collector {
                 support: None,
                 observations: None,
                 designated_candidate_uid: designated,
-                designated_point_m: designated_point,
                 evidence: Evidence::Unknown,
             };
             if let (Some(c), true) = (first_claim, agree) {
@@ -777,20 +766,9 @@ impl Collector {
                 self.stats.targets_kill_record += 1;
             }
 
-            // Geometry and separation need a tracked aircraft target.
+            // Geometry needs a tracked aircraft target.
             let target_track = target.uid.filter(|_| target.kind == Some("aircraft"));
-            let geometry = target_track.zip(p.launch_time_ms).and_then(|(u, lt)| launch_geometry(p.origin, p.launcher.velocity_mps, history.state_at(u, lt)?));
-            let mut sep: Vec<Separation> = Vec::new();
-            if let (Some(u), Some(lt)) = (target_track, p.launch_time_ms) {
-                for w in s {
-                    if let Some(q) = history.at(u, w.timestamp_ms) {
-                        let since = w.time_since_launch_s.map_or(w.timestamp_ms.saturating_sub(lt) as f64 / 1000.0, |v| v as f64);
-                        sep.push(Separation { time_since_launch_s: since, distance_m: dist(p64(w.position_m), q) });
-                    }
-                }
-            }
-            let closest_approach_m = sep.iter().map(|x| x.distance_m).fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.min(v))));
-            let separation = thin(&sep, SEPARATION_POINTS);
+            let geometry = target_track.zip(p.launch_time_ms).filter(|_| !p.late).and_then(|(u, lt)| launch_geometry(p.origin, p.launcher.velocity_mps, history.state_at(u, lt)?));
             self.stats.geometry_available += geometry.is_some() as u64;
 
             // Outcome evidence other than a kill.
@@ -800,9 +778,7 @@ impl Collector {
                 d.attacker_uid == p.launcher.uid && d.attacker_uid.is_some() && (p.launcher.kind != Some("aircraft")) == d.attacker_surface && window(d.timestamp_ms) && near_end(d.victim_uid, d.victim_surface)
             });
             let hit = if p.launcher.is_author { self.hits.iter().find(|h| window(h.timestamp_ms) && near_end(h.target_uid, h.target_surface)) } else { None };
-            let target_survived = target_track.is_some_and(|u| history.at(u, last.timestamp_ms + MISS_SURVIVAL_MS).is_some());
-            let miss = p.kill.is_none() && damaged.is_none() && hit.is_none() && target.status == "seeker" && target_survived && closest_approach_m.is_some_and(|c| c >= MISS_MIN_M);
-            let (class, basis): (&'static str, Option<String>) = if p.kill.is_some() && p.kill_ambiguous {
+            let (class, basis): (&'static str, Option<String>) = if p.kill_ambiguous {
                 ("ambiguous", Some("another weapon from this launcher ended about as close to the victim".to_string()))
             } else if p.kill.is_some() {
                 ("confirmed_kill", Some("kill record: same launcher, weapon ended at the victim".to_string()))
@@ -810,8 +786,6 @@ impl Collector {
                 ("confirmed_damage", Some(format!("{} damage record from this launcher, victim at the weapon end", d.kind)))
             } else if hit.is_some() {
                 ("confirmed_hit", Some("author hit marker, target at the weapon end".to_string()))
-            } else if miss {
-                ("validated_miss", Some(format!("seeker target passed at {:.0} m and flew on {} s", closest_approach_m.unwrap_or(0.0), MISS_SURVIVAL_MS / 1000)))
             } else {
                 ("unknown", None)
             };
@@ -829,7 +803,13 @@ impl Collector {
                         target_distance_at_launch_m: target_then.map(|q| dist(p.origin, q)),
                         target_altitude_at_launch_m: target_then.map(|q| q[1]),
                         victim_uid: k.victim_uid,
-                        victim_vehicle: k.victim_uid.and_then(|u| registry.resolve(u, k.timestamp_ms)).and_then(|u| u.vehicle.clone()),
+                        victim_vehicle: k.victim_uid.and_then(|u| {
+                            if k.victim_surface {
+                                registry.surface_unit(u, k.timestamp_ms).and_then(|e| e.vehicle.clone())
+                            } else {
+                                registry.resolve(u, k.timestamp_ms).and_then(|e| e.vehicle.clone())
+                            }
+                        }),
                         kill_timestamp_ms: Some(k.timestamp_ms),
                         kill_packet_index: Some(k.packet_index),
                         distance_to_victim_m: Some(d),
@@ -854,7 +834,7 @@ impl Collector {
                     evidence: if class == "unknown" { Evidence::Unknown } else { Evidence::Derived },
                 },
             };
-            let killed_with = p.kill.and_then(|(ki, _)| self.kills[ki].weapon.clone());
+            let killed_with = p.kill.filter(|_| !p.kill_ambiguous).and_then(|(ki, _)| self.kills[ki].weapon.clone());
             let (weapon_name, weapon_name_source, weapon_name_evidence, weapon_candidates) = if let Some(n) = killed_with {
                 self.stats.named_by_kill_record += 1;
                 (Some(n), "kill_record", Evidence::Derived, Vec::new())
@@ -871,7 +851,7 @@ impl Collector {
 
             self.stats.weapons_tracked += 1;
             self.stats.weapons_linked_to_creation += created.is_some() as u64;
-            self.stats.weapons_with_launcher += p.launcher.uid.is_some() as u64;
+            self.stats.weapons_with_launcher += (p.launcher.status == "creation_record") as u64;
             self.stats.weapons_by_author += p.launcher.is_author as u64;
             self.stats.weapons_named += weapon_name.is_some() as u64;
 
@@ -892,8 +872,6 @@ impl Collector {
                 launcher: p.launcher,
                 target,
                 geometry,
-                separation,
-                closest_approach_m,
                 trajectory: Trajectory {
                     samples: s.len() as u64,
                     first_ms: first.timestamp_ms,
@@ -901,6 +879,7 @@ impl Collector {
                     time_of_flight_s: tof,
                     time_of_flight_source: if tof.is_some() { "last_sample_timer" } else { "unavailable" },
                     max_sample_interval_s: (s.len() > 1).then_some(max_gap as f64 / 1000.0),
+                    launch_late: p.late,
                     launch_position_m: launch_pos,
                     launch_altitude_m: launch_pos.map(|q| q[1] as f64),
                     first_speed_mps: speed(&first),
@@ -989,19 +968,6 @@ fn target_claims(tr: &Track, launcher: Option<u16>, launch: Option<u32>, designa
         out.push(TargetClaim { method: "seeker_line_of_sight", uid, support, observations });
     }
     out
-}
-
-/// Keep the first, last and evenly spaced points, always including the
-/// closest one.
-fn thin(v: &[Separation], n: usize) -> Vec<Separation> {
-    if v.len() <= n {
-        return v.to_vec();
-    }
-    let mut idx: BTreeSet<usize> = (0..n).map(|i| i * (v.len() - 1) / (n - 1)).collect();
-    if let Some((i, _)) = v.iter().enumerate().min_by(|a, b| a.1.distance_m.partial_cmp(&b.1.distance_m).unwrap()) {
-        idx.insert(i);
-    }
-    idx.into_iter().map(|i| v[i]).collect()
 }
 
 fn len3(v: [f64; 3]) -> f64 {

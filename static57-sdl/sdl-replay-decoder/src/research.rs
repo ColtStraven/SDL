@@ -17,7 +17,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io;
 
-pub const RESEARCH_SCHEMA: &str = "static57.sdl.research-data/0.2";
+pub const RESEARCH_SCHEMA: &str = "static57.sdl.research-data/0.3";
 /// Intervals inside a track longer than this count as missing data.
 pub const MISSING_MIN_MS: u32 = 1_000;
 /// Spawn position agreement that supports a uid-to-vehicle link.
@@ -252,12 +252,14 @@ pub fn field_coverage() -> Vec<FieldCoverage> {
         f("aircraft_controls", "raw_only", Reported, "Seven control bytes exported raw in flight_tracks.jsonl; layout reported, not validated."),
         f("engine_state", "raw_only", Reported, "State byte exported; meanings reported, not validated. Power and health fields not scaled."),
         f("weapon_trajectory", "decoded", Verified, "MPI 0xF0DB position, velocity, time since launch. All messages consume their declared bit length."),
-        f("weapon_launch", "partial", Derived, "Launch position from ECS creation; launch time from timer. Launcher by proximity or kill record."),
+        f("weapon_launcher", "decoded", Verified, "Creation records name the launcher's entity id. Agrees with kill records in every checkable case."),
+        f("weapon_launch", "partial", Derived, "Launch position from ECS creation, launch time from the weapon timer."),
+        f("weapon_target", "partial", Derived, "Established only from seeker observations or a kill record. Most weapons have none."),
         f("weapon_identity", "partial", Derived, "Kill records name some weapons; the per-replay type id carries a name to others of that type (98.8% in hold-out). Types with no kill stay unnamed."),
-        f("weapon_outcome", "partial", Derived, "Kill linkage by geometry and killer. All other outcomes unknown; last sample is not an established impact."),
+        f("weapon_outcome", "partial", Derived, "Kill, damage and hit classes need a supporting record from the launcher. Everything else is unknown. SDL does not classify misses."),
         f("battle_log", "partial", Verified, "Kills and damage: uids, killer vehicle, weapon name. Other fields not decoded."),
         f("radar_sensors", "not_decoded", Unknown, "Sensor records delimited in type 2, values not interpreted."),
-        f("missile_seeker", "not_decoded", Unknown, "Seeker blocks delimited and skipped, values not interpreted."),
+        f("missile_seeker", "partial", Derived, "Radar target estimate and line of sight used to establish targets. Other fields not interpreted; the reported range field was rejected."),
         f("countermeasures", "not_decoded", Unknown, "Records delimited in type 2, values not interpreted."),
         f("ground_units_air_defense", "not_decoded", Unknown, "MPI 0xF073 ground positions not decoded. SAM launches appear only as weapons with no launcher."),
         f("localhost_8111_fusion", "not_decoded", Unknown, "No synchronized recording processed."),
@@ -521,19 +523,19 @@ fn findings(d: &ResearchData) -> Vec<Finding> {
             vec![],
         );
     }
-    for w in d.weapons.events.iter().filter(|w| w.launcher.is_author && w.outcome.status == "kill_linked") {
+    for w in d.weapons.events.iter().filter(|w| w.launcher.is_author && w.outcome.class == "confirmed_kill") {
         add(
             format!(
                 "Author weapon {} ({}) linked to a kill of {} after {} s.",
                 w.weapon_id,
                 w.weapon_name.as_deref().unwrap_or("unnamed"),
-                w.outcome.victim_vehicle.as_deref().unwrap_or("unresolved target"),
+                w.target.vehicle.as_deref().or(w.outcome.victim_vehicle.as_deref()).unwrap_or("unresolved target"),
                 w.trajectory.time_of_flight_s.map(|v| round3(v).to_string()).unwrap_or_else(|| "unknown".into()),
             ),
             w.trajectory.time_of_flight_s.map(round3),
             Some("s"),
             Evidence::Derived,
-            "Weapon track end matched to a kill record by time, victim distance and killer.",
+            "Launcher from the creation record; kill record from that launcher, matched by time and victim distance.",
             vec![SourceRef { subject: w.weapon_id.clone(), packet_index: Some(w.first_packet_index), timestamp_ms: Some(w.trajectory.first_ms) }],
         );
     }
@@ -549,15 +551,14 @@ fn questions(d: &ResearchData) -> Vec<String> {
     if unnamed > 0 {
         q.push(format!("{unnamed} weapons have no name: their type id has no kill record in this replay. Pooling replays cannot help, since ids are per replay."));
     }
-    let unknown = d.weapons.events.iter().filter(|w| w.outcome.status == "unknown").count();
+    let unknown = d.weapons.events.iter().filter(|w| w.outcome.class == "unknown").count();
     if unknown > 0 {
-        q.push(format!("{unknown} weapons have an unknown outcome. Is the last sample an impact, a self-destruct, or loss of replication?"));
+        q.push(format!("{unknown} weapons have an unknown outcome: no kill, damage or hit record supports any conclusion."));
     }
     if d.cockpit_validation.cockpit_messages == 0 {
         q.push("This replay has no cockpit messages, so no independent instrument check was possible.".to_string());
     }
     q.push("How do world X/Z relate to map north? Needs a synchronized 8111 recording.".to_string());
-    q.push("Can the target of a weapon be established from sensor or seeker records? They are delimited but not decoded.".to_string());
     q
 }
 
@@ -645,7 +646,9 @@ pub fn run(file_name: &str, file: &[u8], db: Option<&Databases>) -> io::Result<R
         limitations: vec![
             "A name comes from a kill record or a shared type id. Types that never killed stay unnamed, so named statistics still lean toward effective weapons.",
             "The last observed sample is not an established impact. End time uncertainty is the sample interval.",
-            "Launchers are attributed by geometry or kill record, not by a decoded launcher field.",
+            "Launchers come from a decoded entity id. Ground and ship launchers may have no unit id, so their kills cannot always be linked.",
+            "A target is established only by seeker observation or a kill record. Launch geometry exists only for tracked aircraft targets.",
+            "An unknown outcome is not a miss. SDL has no validated miss classification.",
             "Sample spacing varies from 20 ms to over 1 s depending on network relevance.",
         ],
     };

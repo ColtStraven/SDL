@@ -1,6 +1,6 @@
 # S57-003 SDL — `.wrpl` Format Findings
 
-Decoder: `sdl-replay-decoder` 0.2.0. Date: 2026-10-29 (Milestones 1–3). Milestone 4 findings, on a corpus of 42 replays, are in [FINDINGS_M4_WEAPONS_IDENTITY.md](FINDINGS_M4_WEAPONS_IDENTITY.md); where they differ, that document supersedes this one.
+Decoder: `sdl-replay-decoder` 0.2.0. Date: 2026-10-29 (Milestones 1–3). Milestone 6 findings are in [FINDINGS_M6_ENGAGEMENTS.md](FINDINGS_M6_ENGAGEMENTS.md). Milestone 4 findings, on a corpus of 42 replays, are in [FINDINGS_M4_WEAPONS_IDENTITY.md](FINDINGS_M4_WEAPONS_IDENTITY.md); where they differ, that document supersedes this one.
 Evidence base: 27 genuine client replays recorded by the Static 57 owner, 2026-10-22 to 2026-10-25 (see [COMPATIBILITY.md](COMPATIBILITY.md)).
 
 Classifications: **VERIFIED** (documented structure with a reproducible cross-check on Static 57 replays), **REPORTED** (external documentation only), **DERIVED**, **EXPERIMENTAL**, **UNKNOWN**.

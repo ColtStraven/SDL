@@ -44,9 +44,9 @@ Reports are generated from the JSON datasets alone, and tests check that they ag
 
 ## Cautions for analysis
 
-- **Weapon results are not an envelope.** Names come from kill records or a shared per-replay type id (98.8% in hold-out), so types that never killed stay unnamed. An unknown outcome is not proof of a miss, and only kill-linked shots have a target. Do not infer hit probability or envelope limits from them.
-- **A kill link is a candidate,** not proof that the weapon caused the kill.
-- **Launchers are attributed by geometry or kill record,** not read from a field.
+- **Weapon results are not an envelope.** Names come from kill records or a shared per-replay type id (306 of 306 in hold-out), so types that never killed stay unnamed. SDL does not classify misses, and an `unknown` outcome contains hits, misses and everything else. Do not infer hit probability or envelope limits from them.
+- **A kill link is a candidate,** not proof that the weapon caused the kill. "Confirmed" means a battle-log record links to the weapon.
+- **Launchers are measured, targets are inferred.** The launcher is read from the creation record. Targets, names and outcomes are inferred associations, labelled DERIVED or UNKNOWN. An `ambiguous` link supplies no name.
 - **Remote aircraft are network copies.** Maneuver figures are produced for the recording author only.
 - **Combat maximums are lower bounds,** not performance limits, and aircraft configuration is unknown.
 - **Speed saturates at 500 m/s** for aircraft. Those values are lower bounds and are flagged.

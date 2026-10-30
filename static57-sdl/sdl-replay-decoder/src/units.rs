@@ -75,23 +75,30 @@ pub fn weapon_equipment(equipment: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Offset of the uid marker: `30 70` on aircraft, `38 70` on ground units.
+/// Normally byte 28; some records carry extra leading fields.
+fn uid_marker(d: &[u8]) -> Option<usize> {
+    (24..48.min(d.len().saturating_sub(3))).find(|&o| d[o + 1] == 0x70 && d[o] & 0xF7 == 0x30)
+}
+
 fn parse_unit(created_ms: u32, e: &EntityCreate) -> Option<Unit> {
     let d = &e.data;
-    if d.len() < 32 || d[28] != 0x30 || d[29] != 0x70 {
+    let m = uid_marker(d)?;
+    if m < 17 {
         return None;
     }
     let f = |o: usize| f32::from_le_bytes(d[o..o + 4].try_into().unwrap());
-    let mut strings = prefixed_strings(&d[32..], 3).into_iter();
+    let mut strings = prefixed_strings(&d[m + 4..], 3).into_iter();
     Some(Unit {
         eid: e.eid,
-        uid: u16::from_le_bytes([d[30], d[31]]) & 0x7FF,
+        uid: u16::from_le_bytes([d[m + 2], d[m + 3]]) & 0x7FF,
         created_ms,
         template: e.template.clone(),
         vehicle: strings.next(),
         mission_slot: strings.next(),
         loadout: strings.next(),
         equipment: strings.collect(),
-        spawn_position_m: [f(11), f(15), f(19)],
+        spawn_position_m: [f(m - 17), f(m - 13), f(m - 9)],
         controlled_by_author: e.template.contains("controlled_hero"),
     })
 }
@@ -149,10 +156,11 @@ impl Registry {
     /// Record an entity creation if it is a unit.
     pub fn push(&mut self, t: u32, e: &EntityCreate) {
         let Some(kind) = entity_kind(&e.template) else { return };
-        let strings = prefixed_strings(e.data.get(32..).unwrap_or(&[]), 3);
+        let marker = uid_marker(&e.data);
+        let strings = prefixed_strings(e.data.get(marker.map_or(32, |m| m + 4)..).unwrap_or(&[]), 3);
         // Marker `30 70` on aircraft and `38 70` on ground units, then the uid.
-        let parsed = (e.data.len() >= 32 && e.data[29] == 0x70 && e.data[28] & 0xF7 == 0x30).then(|| u16::from_le_bytes([e.data[30], e.data[31]]) & 0x7FF);
-        let spawn = (e.data.len() >= 23).then(|| [11, 15, 19].map(|o: usize| f32::from_le_bytes(e.data[o..o + 4].try_into().unwrap())));
+        let parsed = marker.map(|m| u16::from_le_bytes([e.data[m + 2], e.data[m + 3]]) & 0x7FF);
+        let spawn = marker.filter(|m| *m >= 17).map(|m| [m - 17, m - 13, m - 9].map(|o| f32::from_le_bytes(e.data[o..o + 4].try_into().unwrap())));
         let vehicle = strings.first().cloned().map(clean_vehicle);
         if vehicle.as_deref() != Some(PLACEHOLDER_VEHICLE) {
             self.by_eid.entry(e.eid).or_default().push(EntityInfo {

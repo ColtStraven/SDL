@@ -45,10 +45,11 @@
 | `cockpit` | Minimal MPI `0xD04A` decoder, used only as an independent reference |
 | `tracks` | `Reconstructor`: provisional track segments per uid (split on gap or unexplained jump, never merged), author identification via the sync trailer, sample flags, kinematic and cockpit validation statistics, bit-coverage accounting |
 | `ecs` | ECS creation framing: entity id, template name, raw component block. Component values are not decoded |
-| `units` | Vehicle, slot and loadout per uid from creation records, resolved at a time |
-| `idfield`, `combat` | Id-field message tables; kill and damage records |
+| `units` | Vehicle, slot and loadout per uid and per entity from creation records, resolved at a time, for aircraft, ground units and ships |
+| `idfield`, `combat` | Id-field message tables; kill, damage and hit records |
 | `shells` | MPI `0xF0DB` weapon records, accepted only when they consume exactly the declared length |
-| `weapons` | Joins creation, flight records, aircraft state and kills into `WeaponEvent`s. Launcher, name and outcome are DERIVED with explicit status. Names come from kill records or a per-replay type id, with a built-in hold-out test |
+| `seeker` | Seeker blocks carried by `ShellsData`: target estimate and line of sight. The range field is rejected |
+| `weapons` | Joins creation, flight records, aircraft state, seeker data and battle-log records into `WeaponEvent`s. The launcher is VERIFIED from the creation record. Target, name and outcome are DERIVED or UNKNOWN with explicit status. SDL does not classify misses. Names come from kill records or a per-replay type id, with a built-in hold-out test |
 | `lab` | One extraction pass over a replay |
 | `measure` | Pure measurement functions: statistics, maneuver figures, transitions, gaps, robust z-score |
 | `research` | Per-replay `ResearchData`: tracks, identity, anomalies, missing data, findings, questions, coverage |

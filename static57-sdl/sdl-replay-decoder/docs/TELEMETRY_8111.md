@@ -1,6 +1,6 @@
 # S57-003 SDL — localhost:8111 Validation Plan
 
-Status: **prepared, not executed.** No synchronized 8111 recording has been provided yet. Nothing here is a result.
+Status: **prepared, not executed.** No synchronized 8111 recording has been provided yet. Nothing here is a result. The flight procedure is in [CONTROLLED_TEST_PROCEDURE.md](CONTROLLED_TEST_PROCEDURE.md).
 
 ## 1. Purpose
 

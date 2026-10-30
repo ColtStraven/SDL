@@ -13,7 +13,7 @@ Static 57 — Simulation Dynamics Laboratory (S57-003): a native War Thunder `.w
 
 All are validated on 42 genuine 2.59 client replays (format `0x00018C1C`, zstd); see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
-SDL produces research reports from replays: aircraft tracks with vehicle identity, weapon trajectories with launch conditions, battle-log outcomes, and proposals for review against the Strike Master databases. Weapon types are inferred from kill records through a per-replay type id, and 3,284 of 5,817 tracked weapons are named. Sensors, seekers and ground units are not decoded, and the horizontal map frame is not yet tied to map north. See [docs/RESEARCH_WORKFLOW.md](docs/RESEARCH_WORKFLOW.md).
+SDL produces research reports from replays: aircraft tracks with vehicle identity, weapon trajectories with launch conditions, battle-log outcomes, and proposals for review against the Strike Master databases. Launchers are read from creation records (5,523 of 5,817 weapons). Weapon types are inferred from kill records through a per-replay type id, and 3,982 weapons are named. SDL does not classify misses. Radar sensors are not decoded, seeker blocks are decoded in part, and ground units have no track, and the horizontal map frame is not yet tied to map north. See [docs/RESEARCH_WORKFLOW.md](docs/RESEARCH_WORKFLOW.md).
 
 ## Build
 
@@ -50,7 +50,7 @@ Replays are opened read-only. Output is never written next to the replay unless 
 
 ```
 cargo test                                   # synthetic fixtures (110 tests)
-cargo test --release -- --include-ignored    # plus 3 genuine-replay tests (113 total)
+cargo test --release -- --include-ignored    # plus 3 genuine-replay tests (127 total)
 ```
 
 The genuine-replay tests read `SDL_REPLAY_DIR`, or `%LOCALAPPDATA%\WarThunder\Replays` when that variable is unset. Passing the synthetic fixtures alone does **not** demonstrate War Thunder compatibility.

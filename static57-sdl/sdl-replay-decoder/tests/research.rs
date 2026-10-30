@@ -60,7 +60,7 @@ fn data(vehicle: &str, peak: f32) -> (Vec<u8>, ResearchData) {
 #[test]
 fn provenance_and_replay_identity() {
     let (f, d) = data("f-5e", 200.0);
-    assert_eq!(d.schema, "static57.sdl.research-data/0.2");
+    assert_eq!(d.schema, "static57.sdl.research-data/0.3");
     assert_eq!(d.replay.sha256, sha256_hex(&f));
     assert_eq!(d.replay.size_bytes, f.len() as u64);
     assert_eq!(d.replay.format_magic, "0x00018C1C");
@@ -109,8 +109,9 @@ fn tracks_identity_and_measurements() {
 fn weapon_results_carry_status_and_limitations() {
     let (_, d) = data("f-5e", 200.0);
     let w = &d.weapons.events[0];
-    assert_eq!(w.launcher.status, "attributed_by_proximity");
-    assert_eq!(w.outcome.status, "kill_linked");
+    assert_eq!(w.launcher.status, "creation_record");
+    assert_eq!(w.launcher.evidence, Evidence::Verified);
+    assert_eq!(w.outcome.class, "confirmed_kill");
     assert_eq!(w.weapon_name.as_deref(), Some("us_aim9j_sidewinder"));
     assert_eq!(w.trajectory.samples, 30);
     assert_eq!(d.weapons.stats.shells_exact, 30);
@@ -119,6 +120,9 @@ fn weapon_results_carry_status_and_limitations() {
     let p = &d.strike_master.proposals[0];
     assert_eq!(p.target_vehicle.as_deref(), Some("mig_23ml"));
     assert!(p.target_distance_at_launch_m.is_some());
+    assert!(p.complete_record);
+    assert_eq!(p.outcome, "confirmed_kill");
+    assert_eq!(p.launcher_evidence, Evidence::Verified);
     assert!(p.caution.contains("not a launch envelope"));
 }
 
@@ -159,12 +163,13 @@ fn missing_data_stays_null_and_is_labelled() {
 fn field_coverage_never_claims_undecoded_families() {
     let (_, d) = data("f-5e", 200.0);
     let status = |f: &str| d.decoded_field_coverage.iter().find(|x| x.family == f).unwrap();
-    for f in ["radar_sensors", "missile_seeker", "countermeasures", "localhost_8111_fusion"] {
+    for f in ["radar_sensors", "countermeasures", "localhost_8111_fusion"] {
         assert_eq!(status(f).status, "not_decoded", "{f}");
         assert_eq!(status(f).evidence, Evidence::Unknown, "{f}");
     }
     assert_eq!(status("weapon_identity").status, "partial");
     assert_eq!(status("aircraft_position_altitude").evidence, Evidence::Verified);
+    assert_eq!(status("weapon_launcher").evidence, Evidence::Verified);
 }
 
 #[test]
@@ -226,7 +231,7 @@ fn cross_replay_analysis() {
     let (_, c) = data("mig_23ml", 300.0);
     let dirs = ["a".to_string(), "b".to_string(), "c".to_string()];
     let s = survey::analyze(&[a, b, c], &dirs);
-    assert_eq!(s.schema, "static57.sdl.research-summary/0.2");
+    assert_eq!(s.schema, "static57.sdl.research-summary/0.3");
     assert_eq!(s.totals.replays, 3);
     assert_eq!(s.totals.replays_with_author, 3);
     assert_eq!(s.totals.weapons_named, 3);
@@ -245,6 +250,11 @@ fn cross_replay_analysis() {
     let md = report::render_summary(&s);
     assert!(md.contains("us_aim9j_sidewinder"));
     assert!(md.contains("Controlled LAR shots"));
+    assert!(md.contains("Independent 8111 validation"));
+    assert_eq!(s.totals.launchers_verified, 3);
+    assert_eq!(s.totals.outcome_classes.get("confirmed_kill"), Some(&3));
+    assert!(!s.totals.outcome_classes.contains_key("validated_miss"));
+    assert!(md.contains("SDL does not classify misses"));
     assert!(md.contains(&report::num(f5.max_speed_mps)));
     for r in &s.replays {
         assert!(md.contains(&r.file_name));

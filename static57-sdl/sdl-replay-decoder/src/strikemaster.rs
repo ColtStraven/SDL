@@ -110,11 +110,16 @@ pub struct Proposal {
     pub weapon_name_evidence: Evidence,
     pub s57_weapon_id: Option<String>,
     pub vehicle: Option<String>,
+    pub launcher_evidence: Evidence,
     pub s57_aircraft_id: Option<String>,
     pub database_match_evidence: Evidence,
     pub launch_altitude_m: Option<f64>,
     pub launch_aircraft_speed_mps: Option<f64>,
     pub target_vehicle: Option<String>,
+    pub target_method: Option<String>,
+    pub target_evidence: Evidence,
+    pub target_aspect_deg: Option<f64>,
+    pub closing_speed_mps: Option<f64>,
     pub samples: u64,
     pub time_of_flight_s: Option<f64>,
     /// Sample spacing near the end of flight bounds the time of flight.
@@ -123,6 +128,7 @@ pub struct Proposal {
     pub max_speed_mps: f64,
     pub end_speed_mps: f64,
     pub distance_to_target_at_last_sample_m: Option<f64>,
+    /// Outcome class. `unknown` is not a miss.
     pub outcome: &'static str,
     pub outcome_evidence: Evidence,
     pub target_distance_at_launch_m: Option<f64>,
@@ -133,6 +139,9 @@ pub struct Proposal {
     pub weapon_id: String,
     pub first_packet_index: u64,
     pub timestamp_ms: u32,
+    /// Launcher verified, weapon named, target geometry present, and a
+    /// supporting outcome record. Not a statement of LAR readiness.
+    pub complete_record: bool,
     pub caution: &'static str,
 }
 
@@ -148,7 +157,15 @@ pub fn proposals(sha256: &str, file: &str, weapons: &[WeaponEvent], db: Option<&
             let s57_weapon_id = db.and_then(|d| d.weapon_id(&name)).map(String::from);
             let s57_aircraft_id = db.zip(vehicle.as_deref()).and_then(|(d, v)| d.aircraft_id(v)).map(String::from);
             let t = &w.trajectory;
+            let g = w.geometry.as_ref();
+            let confirmed = matches!(w.outcome.class, "confirmed_kill" | "confirmed_damage" | "confirmed_hit");
             Some(Proposal {
+                launcher_evidence: w.launcher.evidence,
+                target_method: w.target.method.clone(),
+                target_evidence: w.target.evidence,
+                target_aspect_deg: g.and_then(|g| g.target_aspect_deg).map(round3),
+                closing_speed_mps: g.and_then(|g| g.closing_speed_mps).map(round3),
+                complete_record: w.launcher.evidence == Evidence::Verified && g.is_some() && confirmed,
                 proposal_id: format!("{}-{}", &sha256[..8], w.weapon_id),
                 status: "proposed_for_review",
                 weapon_name: name,
@@ -160,7 +177,7 @@ pub fn proposals(sha256: &str, file: &str, weapons: &[WeaponEvent], db: Option<&
                 s57_aircraft_id,
                 launch_altitude_m: t.launch_altitude_m.map(round3),
                 launch_aircraft_speed_mps: w.launcher.aircraft_speed_mps.map(round3),
-                target_vehicle: w.outcome.victim_vehicle.clone(),
+                target_vehicle: w.target.vehicle.clone(),
                 samples: t.samples,
                 time_of_flight_s: t.time_of_flight_s.map(round3),
                 time_of_flight_uncertainty_s: t.max_sample_interval_s.map(round3),
@@ -168,11 +185,11 @@ pub fn proposals(sha256: &str, file: &str, weapons: &[WeaponEvent], db: Option<&
                 max_speed_mps: round3(t.max_speed_mps),
                 end_speed_mps: round3(t.last_speed_mps),
                 distance_to_target_at_last_sample_m: w.outcome.distance_to_victim_m.map(round3),
-                outcome: w.outcome.status,
+                outcome: w.outcome.class,
                 outcome_evidence: w.outcome.evidence,
-                target_distance_at_launch_m: w.outcome.target_distance_at_launch_m.map(round3),
-                target_altitude_at_launch_m: w.outcome.target_altitude_at_launch_m.map(round3),
-                target_distance_status: if w.outcome.target_distance_at_launch_m.is_some() { "derived: positions of launch point and eventual victim at launch time" } else { "unavailable: victim position at launch not recorded" },
+                target_distance_at_launch_m: g.map(|g| round3(g.target_distance_m)),
+                target_altitude_at_launch_m: g.map(|g| round3(g.target_altitude_m)),
+                target_distance_status: if g.is_some() { "derived: launch point and established target at launch time" } else { "unavailable: no tracked target established" },
                 replay_sha256: sha256.to_string(),
                 replay_file: file.to_string(),
                 weapon_id: w.weapon_id.clone(),

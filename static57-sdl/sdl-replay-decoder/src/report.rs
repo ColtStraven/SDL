@@ -160,11 +160,11 @@ pub fn render(d: &ResearchData) -> String {
     }
     m.push('\n');
 
-    let _ = writeln!(m, "## 5. Weapons\n");
+    let _ = writeln!(m, "## 5. Weapon engagements\n");
     let w = &d.weapons;
     let _ = writeln!(
         m,
-        "{} weapons tracked from {} records. Launcher attributed: {}. Author: {}. Named: {} ({} by kill record, {} by type id). Kills linked: {} of {}.\n",
+        "{} weapons tracked from {} records. Launcher identified by entity id: {}. Author: {}. Named: {} ({} by kill record, {} by type id). Kills linked: {} of {}.\n",
         w.stats.weapons_tracked, w.stats.weapon_records, w.stats.weapons_with_launcher, w.stats.weapons_by_author, w.stats.weapons_named, w.stats.named_by_kill_record, w.stats.named_by_type_id, w.stats.kills_linked_to_weapon, w.stats.kills_seen
     );
     for l in &w.limitations {
@@ -172,26 +172,32 @@ pub fn render(d: &ResearchData) -> String {
     }
     m.push('\n');
     let mut shown: Vec<_> = w.events.iter().filter(|e| e.launcher.is_author || e.weapon_name.is_some()).collect();
-    shown.sort_by_key(|e| (!e.launcher.is_author, e.outcome.status != "kill_linked", e.weapon_name.is_none(), e.trajectory.first_ms));
+    shown.sort_by_key(|e| (!e.launcher.is_author, e.outcome.class == "unknown", e.weapon_name.is_none(), e.trajectory.first_ms));
     if !shown.is_empty() {
+        let classes: Vec<String> = w.stats.outcome_classes.iter().map(|(k, v)| format!("{k} {v}")).collect();
+        let _ = writeln!(m, "Outcome classes: {}. An unknown outcome is not a miss.\n", classes.join(", "));
         let _ = writeln!(m, "Author and named weapons:\n");
-        let _ = writeln!(m, "| Weapon | Type | Name | Launcher | Launch alt m | Launcher speed m/s | ToF s | Range m | Max speed m/s | Target at launch m | Outcome |\n|---|---|---|---|---|---|---|---|---|---|---|");
+        let _ = writeln!(m, "| Weapon | Type | Name (source) | Launcher | Launch alt m | Launcher speed m/s | ToF s | Max speed m/s | Target (method) | Target distance m | Aspect deg | Closing m/s | Outcome |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|");
         for e in shown.iter().take(MD_WEAPON_LIMIT) {
             let _ = writeln!(
                 m,
-                "| {} | {} | {} | {}{} | {} | {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} ({}) | {}{} | {} | {} | {} | {} | {} ({}) | {} | {} | {} | {} |",
                 e.weapon_id,
                 e.template,
                 e.weapon_name.as_deref().unwrap_or("unnamed"),
+                e.weapon_name_source,
                 e.launcher.vehicle.as_deref().unwrap_or("unresolved"),
                 if e.launcher.is_author { " (author)" } else { "" },
                 num(e.trajectory.launch_altitude_m.map(crate::measure::round3)),
                 num(e.launcher.aircraft_speed_mps.map(crate::measure::round3)),
                 num(e.trajectory.time_of_flight_s.map(crate::measure::round3)),
-                crate::measure::round3(e.trajectory.ground_range_m),
                 crate::measure::round3(e.trajectory.max_speed_mps),
-                num(e.outcome.target_distance_at_launch_m.map(crate::measure::round3)),
-                e.outcome.status
+                e.target.vehicle.as_deref().unwrap_or(if e.target.status == "unavailable" { "unavailable" } else { "unresolved" }),
+                e.target.method.as_deref().unwrap_or("-"),
+                num(e.geometry.as_ref().map(|g| crate::measure::round3(g.target_distance_m))),
+                num(e.geometry.as_ref().and_then(|g| g.target_aspect_deg).map(crate::measure::round3)),
+                num(e.geometry.as_ref().and_then(|g| g.closing_speed_mps).map(crate::measure::round3)),
+                e.outcome.class
             );
         }
         if shown.len() > MD_WEAPON_LIMIT {
@@ -276,7 +282,26 @@ pub fn render_summary(c: &CrossReplay) -> String {
     let _ = writeln!(m, "| Named weapons | {} |", t.weapons_named);
     let _ = writeln!(m, "| Kills in battle logs | {} |\n", t.kills);
 
-    let _ = writeln!(m, "## 2. Author aircraft performance by vehicle\n");
+    let _ = writeln!(m, "## 2. Weapon engagement evidence\n");
+    let _ = writeln!(m, "| Measure | Value | Evidence |\n|---|---|---|");
+    let _ = writeln!(m, "| Launcher identified by entity id | {} of {} | VERIFIED |", t.launchers_verified, t.weapons_tracked);
+    let _ = writeln!(m, "| Target from seeker observation | {} | DERIVED |", t.targets_seeker);
+    let _ = writeln!(m, "| Target from kill record only | {} | DERIVED |", t.targets_kill_record);
+    let _ = writeln!(m, "| Launch geometry available | {} | DERIVED |", t.launch_geometry);
+    let _ = writeln!(m, "| Complete records | {} | DERIVED |", t.complete_records);
+    let _ = writeln!(m, "| Name hold-out | {} of {} | DERIVED |\n", t.name_holdout_correct, t.name_holdout_attempted);
+    let _ = writeln!(m, "| Outcome class | Weapons |\n|---|---|");
+    for (k, v) in &t.outcome_classes {
+        let _ = writeln!(m, "| {k} | {v} |");
+    }
+    let _ = writeln!(m, "\nSDL does not classify misses, so `unknown` includes hits, misses and everything else.\n");
+    let _ = writeln!(m, "| Target method | Claims on kill-linked weapons | Named the victim |\n|---|---|---|");
+    for (k, v) in &t.target_method_checks {
+        let _ = writeln!(m, "| {k} | {} | {} |", v.0, v.1);
+    }
+    m.push('\n');
+
+    let _ = writeln!(m, "## 3. Author aircraft performance by vehicle\n");
     let _ = writeln!(m, "Observed in combat sorties, not controlled tests. Spread is across replays. Maximums are lower bounds on capability. Abrupt velocity changes (collision, break-up, impact candidates) are excluded from g and turn figures.\n");
     let _ = writeln!(m, "| Vehicle | Replays | Tracked s | Max alt m | Max speed m/s | Peak g (1 s) | Best climb m/s (10 s) | Best turn deg/s | Speed range across replays |\n|---|---|---|---|---|---|---|---|---|");
     for v in &c.vehicles {
@@ -297,9 +322,9 @@ pub fn render_summary(c: &CrossReplay) -> String {
     }
     m.push('\n');
 
-    let _ = writeln!(m, "## 3. Observed weapon performance\n");
-    let _ = writeln!(m, "All named shots from any launcher. Names come from kill records or a shared per-replay type id. Flight figures use shots with at least 5 samples. Target distance exists only for kill-linked shots, and an unlinked shot is not proven a miss, so these figures do not describe envelope limits or hit probability. A launcher listed for a SAM can be an aircraft that passed the launch point.\n");
-    let _ = writeln!(m, "| Weapon | S57 id | Shots | Kill-linked | Launchers | ToF s (min/med/max) | Range m (min/med/max) | Max speed m/s | Launch alt m (min/max) | Target at launch m (min/max) |\n|---|---|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(m, "## 4. Observed weapon performance\n");
+    let _ = writeln!(m, "All named shots from any launcher. Names come from kill records or a shared per-replay type id. Flight figures use shots with at least 5 samples. Launchers are decoded entity ids. Target distance exists only where a tracked target is established. An unknown outcome is not a miss, so these figures do not describe envelope limits or hit probability.\n");
+    let _ = writeln!(m, "| Weapon | S57 id | Shots | Confirmed kills | Launchers | ToF s (min/med/max) | Range m (min/med/max) | Max speed m/s | Launch alt m (min/max) | Target at launch m (min/max) |\n|---|---|---|---|---|---|---|---|---|---|");
     for w in &c.weapons {
         let _ = writeln!(
             m,
@@ -307,7 +332,7 @@ pub fn render_summary(c: &CrossReplay) -> String {
             w.weapon_name,
             w.s57_weapon_id.as_deref().unwrap_or("-"),
             w.shots,
-            w.kill_linked,
+            w.confirmed_kills,
             w.launchers.join(", "),
             num(w.time_of_flight_s.min),
             num(w.time_of_flight_s.p50),
@@ -324,7 +349,7 @@ pub fn render_summary(c: &CrossReplay) -> String {
     }
     m.push('\n');
 
-    let _ = writeln!(m, "## 4. Measurement consistency\n");
+    let _ = writeln!(m, "## 5. Measurement consistency\n");
     let _ = writeln!(m, "Median absolute error per replay (range across replays with enough samples).\n");
     let _ = writeln!(m, "| Check | Replays | Best | Median | Worst |\n|---|---|---|---|---|");
     for x in &c.consistency {
@@ -332,7 +357,7 @@ pub fn render_summary(c: &CrossReplay) -> String {
     }
     m.push('\n');
 
-    let _ = writeln!(m, "## 5. Outliers and anomalies\n");
+    let _ = writeln!(m, "## 6. Outliers and anomalies\n");
     if c.outliers.is_empty() {
         let _ = writeln!(m, "No outliers beyond a robust z-score of 3.5 and a practical size floor.\n");
     } else {
@@ -348,7 +373,7 @@ pub fn render_summary(c: &CrossReplay) -> String {
     }
     m.push('\n');
 
-    let _ = writeln!(m, "## 6. Replays\n");
+    let _ = writeln!(m, "## 7. Replays\n");
     let _ = writeln!(m, "| Replay | Game | Mission | Author vehicle | Tracked s | Max speed | Weapons (author) | Status |\n|---|---|---|---|---|---|---|---|");
     for r in &c.replays {
         let _ = writeln!(
@@ -367,7 +392,7 @@ pub fn render_summary(c: &CrossReplay) -> String {
     }
     m.push('\n');
 
-    let _ = writeln!(m, "## 7. Research opportunities and recommended experiments\n");
+    let _ = writeln!(m, "## 8. Research opportunities and recommended experiments\n");
     for o in &c.recommendations {
         let _ = writeln!(m, "- **{}**: {}", o.title, o.detail);
     }

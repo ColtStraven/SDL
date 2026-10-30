@@ -85,6 +85,10 @@ fn genuine_research_reports() {
             assert!(md.contains(&f.statement), "{name}: {}", f.id);
         }
         assert!(md.lines().count() < 260, "{name}: report too long ({} lines)", md.lines().count());
+        assert!(!w.outcome_classes.contains_key("validated_miss"), "{name}");
+        assert_eq!(w.outcome_classes.values().sum::<u64>(), w.weapons_tracked, "{name}: every weapon has one class");
+        // Almost every store creation names a known unit.
+        assert!(w.launchers_exact + 2 >= w.weapons_linked_to_creation, "{name}: {} of {}", w.launchers_exact, w.weapons_linked_to_creation);
         holdout.0 += w.holdout_type_id_correct;
         holdout.1 += w.holdout_type_id_attempted;
         // A type id never spans two store templates.

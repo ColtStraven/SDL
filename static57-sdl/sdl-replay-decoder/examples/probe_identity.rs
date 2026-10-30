@@ -88,6 +88,7 @@ fn main() {
                         }
                         _ => dmg_none += 1,
                     },
+                    Some(CombatRecord::Hit(_)) => {}
                     None => {
                         if pl.len() >= 4 && matches!(u16::from_le_bytes([pl[2], pl[3]]), 0xF058 | 0xF056 | 0xF157) {
                             parsed_fail += 1;

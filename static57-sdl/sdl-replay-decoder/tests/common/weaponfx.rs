@@ -50,7 +50,20 @@ pub fn store_data(launch: [f32; 3]) -> Vec<u8> {
 
 /// Store creation data with a chosen type id (one varint byte below 128).
 pub fn store_data_typed(type_id: u8, launch: [f32; 3]) -> Vec<u8> {
-    let mut d = vec![0x00, 0x02, 0x00, type_id, 0x77, 0x05, 0x01, 0x00, 0x00, 1, 2, 3, 4, 0, 0, 0x13, 0x00];
+    store_data_owned(type_id, 1, launch)
+}
+
+/// Store creation data naming launcher entity `owner`.
+pub fn store_data_owned(type_id: u8, owner: u32, launch: [f32; 3]) -> Vec<u8> {
+    let (index, generation) = (owner & 0x3F_FFFF, owner >> 22);
+    let mut d = vec![0x00, 0x02, 0x00, type_id];
+    if generation <= 1 {
+        d.extend_from_slice(&((1 | (generation << 1) | (index << 2)) as u16).to_le_bytes());
+    } else {
+        d.extend_from_slice(&((2 | (index << 2)) as u16).to_le_bytes());
+        d.push(generation as u8);
+    }
+    d.extend_from_slice(&[0x01, 0x00, 0x00, 1, 2, 3, 4, 0, 0, 0x13, 0x00]);
     for v in launch {
         d.extend_from_slice(&v.to_le_bytes());
     }
@@ -65,9 +78,18 @@ pub fn shell_id(eid: u32) -> u32 {
 
 /// One `ShellsData` message holding one record in list 0.
 pub fn shells_payload(eid: u32, pos: [f32; 3], vel: [f64; 3], tsl_s: f64) -> Vec<u8> {
+    shells_message(eid, pos, vel, tsl_s, None)
+}
+
+/// As `shells_payload`, with a seeker block of `bits` bits.
+pub fn shells_payload_seeker(eid: u32, pos: [f32; 3], vel: [f64; 3], tsl_s: f64, bits: u16, block: &[u8]) -> Vec<u8> {
+    shells_message(eid, pos, vel, tsl_s, Some((bits, block)))
+}
+
+fn shells_message(eid: u32, pos: [f32; 3], vel: [f64; 3], tsl_s: f64, seeker: Option<(u16, &[u8])>) -> Vec<u8> {
     let mut body = BitWriter::default();
     body.byte(1);
-    body.bit(true).bit(false); // no seeker, full record
+    body.bit(seeker.is_none()).bit(false); // no seeker flag, full record
     body.u32(shell_id(eid));
     body.bit(true).f32(pos[0]).f32(pos[1]).f32(pos[2]);
     body.zigzag(5).f32(0.0).f32(0.0).f32(0.0);
@@ -78,7 +100,17 @@ pub fn shells_payload(eid: u32, pos: [f32; 3], vel: [f64; 3], tsl_s: f64) -> Vec
     body.bit(false);
     body.byte(0x0F);
     body.varint((tsl_s * 48.0).round() as u64 + 1).varint(1).varint(1).varint(1);
-    body.bit(false); // no SACLOS
+    match seeker {
+        Some((bits, block)) => {
+            body.f32(0.0).bit(false).u16(bits);
+            for i in 0..bits as usize {
+                body.bit(block[i / 8] & (0x80 >> (i % 8)) != 0);
+            }
+        }
+        None => {
+            body.bit(false); // no SACLOS
+        }
+    }
     body.byte(0).byte(0); // empty lists
     let bits = body.bits;
     let mut w = BitWriter::default();

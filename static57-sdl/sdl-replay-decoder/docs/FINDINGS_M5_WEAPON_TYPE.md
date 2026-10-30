@@ -1,6 +1,6 @@
 # S57-003 SDL — Weapon Type Findings
 
-Decoder: `sdl-replay-decoder` 0.4.0. Date: 2026-10-30.
+Decoder: `sdl-replay-decoder` 0.4.0. Date: 2026-10-30. Counts here predate entity launchers. [FINDINGS_M6_ENGAGEMENTS.md](FINDINGS_M6_ENGAGEMENTS.md) supersedes them, and explains the hold-out disagreements.
 Evidence base: 42 genuine client replays, format `0x00018C1C`, game version field 2.59.0.80–92.
 Reproduce: `sdl-replay-decoder research-survey <Replays folder>`. Hold-out counts are in each `research-data.json` under `weapons.stats`.
 
@@ -61,7 +61,7 @@ A disputed id, where no name holds two thirds of its kill records, stays unnamed
 
 ## What this changes for LAR work
 
-Named misses and non-kills are now available, so launch conditions can be studied for all shots of a type, not only successful ones. Three limits remain:
+Named shots without a kill are now available, so launch conditions can be studied for all shots of a type, not only successful ones. Three limits remain:
 
 1. **An unknown outcome is not a miss.** Kill records cover kills only: a hit that only damaged the target, or a kill that failed to link, reads as unknown.
 2. **Target distance exists only for kill-linked shots.** Other shots have no established target until sensor or seeker records are decoded.
