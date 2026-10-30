@@ -199,7 +199,7 @@ Median absolute error per replay (range across replays with enough samples).
 | Vertical speed vs cockpit (m/s) | 33 | 0.005 | 0.185 | 0.305 |
 | Roll vs cockpit (deg) | 35 | 0.002 | 0.053 | 0.235 |
 | Pitch vs cockpit (deg) | 35 | 0.02 | 0.046 | 0.075 |
-| IAS (ISA from TAS) vs cockpit (m/s) | 33 | 0.386 | 1.026 | 4.578 |
+| IAS estimate (ground speed, ISA) vs cockpit (m/s) | 33 | 0.386 | 1.026 | 4.578 |
 | Author displacement vs velocity (m) | 36 | 0 | 0.061 | 0.089 |
 | All-aircraft displacement vs velocity (m) | 46 | 0 | 1.504 | 53.548 |
 

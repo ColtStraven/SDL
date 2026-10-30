@@ -25,7 +25,7 @@ Evidence classes: VERIFIED, REPORTED, DERIVED, EXPERIMENTAL, UNKNOWN. "unavailab
 | ID | Finding | Evidence | Method | Source |
 |---|---|---|---|---|
 | F-001 | Author (saab_ja37di_f21) reached 5666.922 m altitude. | Verified | Maximum decoded position Y over author tracks. | u429.s8 pkt 478667 |
-| F-002 | Author (saab_ja37di_f21) reached 446.237 m/s true speed. | Verified | Maximum decoded speed over author tracks. | u429.s1 pkt 149798 |
+| F-002 | Author (saab_ja37di_f21) reached 446.237 m/s ground speed. | Verified | Maximum decoded speed over author tracks. | u429.s1 pkt 149798 |
 | F-003 | Author peak load factor 10.512 g over a 1 s baseline. | Derived | Velocity difference over 1 s plus gravity. Shorter peaks are attenuated. | u429.s0 pkt 86175 |
 | F-004 | Author best sustained climb 114.226 m/s over 10 s. | Derived | Altitude change over a 10 s baseline. Not a controlled climb test. | u429.s3 pkt 227686 |
 | F-005 | Author peak specific excess power 217.326 m/s over 5 s. | Derived | Rate of change of energy height. Aircraft configuration is unknown. | u429.s8 pkt 487973 |
@@ -165,7 +165,7 @@ Battle log: 120 kills, 127 damage records.
 | Vertical speed vs cockpit, m/s | 0.200 / 0.804 |
 | Roll vs cockpit, deg | 0.056 / 1.406 |
 | Pitch vs cockpit, deg | 0.042 / 0.434 |
-| IAS (ISA from TAS) vs cockpit, m/s | 0.730 / 10.044 |
+| IAS estimate (ground speed, ISA) vs cockpit, m/s | 0.730 / 10.044 |
 
 ## 7. Aircraft systems
 
@@ -187,9 +187,9 @@ Load factor from position against cockpit id 482, on aircraft that carry it:
 |---|---|---|---|
 | saab_ja37di_f21 | 12631 | 0.977 | 0.084 / 1.589 |
 
-Fuel gauge candidate (cockpit id 195, unit not established):
+Fuel mass (cockpit id 195, matched to 8111 `Mfuel, kg` on three aircraft):
 
-| Vehicle | Start | End | Duration s | Rate per s |
+| Vehicle | Start kg | End kg | Duration s | kg/s |
 |---|---|---|---|---|
 | saab_ja37di_f21 | 1803.8 | 886.9 | 599 | -1.530 |
 | saab_ja37di_f21 | 1803.8 | 1.5 | 371 | -4.855 |

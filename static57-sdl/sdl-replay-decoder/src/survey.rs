@@ -366,7 +366,7 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
         range("Vertical speed vs cockpit", "m/s", data, |d| d.cockpit_validation.vertical_speed_mps.abs_error.p50.map(|v| (d.cockpit_validation.vertical_speed_mps.n, v))),
         range("Roll vs cockpit", "deg", data, |d| d.cockpit_validation.roll_deg.abs_error.p50.map(|v| (d.cockpit_validation.roll_deg.n, v))),
         range("Pitch vs cockpit", "deg", data, |d| d.cockpit_validation.pitch_deg.abs_error.p50.map(|v| (d.cockpit_validation.pitch_deg.n, v))),
-        range("IAS (ISA from TAS) vs cockpit", "m/s", data, |d| d.cockpit_validation.ias_isa_mps.abs_error.p50.map(|v| (d.cockpit_validation.ias_isa_mps.n, v))),
+        range("IAS estimate (ground speed, ISA) vs cockpit", "m/s", data, |d| d.cockpit_validation.ias_isa_mps.abs_error.p50.map(|v| (d.cockpit_validation.ias_isa_mps.n, v))),
         range("Author displacement vs velocity", "m", data, |d| {
             let r = &d.kinematic_validation.author_displacement_residual_m;
             r.p50.map(|v| (r.n, v))

@@ -57,7 +57,7 @@ pub struct Velocity {
     pub vy_mps: f64,
     pub vz_mps: f64,
     pub speed_mps: f64,
-    /// Speed field at its maximum: true speed is >= `speed_mps`.
+    /// Speed field at its maximum: actual speed is >= `speed_mps`.
     pub saturated: bool,
     /// `rx^2 + ry^2` exceeded 1 by quantisation and `vz` was clamped to 0.
     pub clamped: bool,
@@ -103,7 +103,7 @@ pub fn angle_diff_deg(a: f64, b: f64) -> f64 {
 }
 
 /// ISA density ratio in the troposphere (DERIVED; used only to compare
-/// decoded true speed with the cockpit's indicated airspeed).
+/// decoded world speed with the cockpit's indicated airspeed).
 pub fn isa_density_ratio(altitude_m: f64) -> f64 {
     (1.0 - 2.255_77e-5 * altitude_m.clamp(-500.0, 11_000.0)).powf(4.2559)
 }

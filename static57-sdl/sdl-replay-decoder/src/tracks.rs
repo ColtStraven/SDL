@@ -227,7 +227,7 @@ pub struct CockpitValidation {
     pub vertical_speed_mps: Comparison,
     pub roll_deg: Comparison,
     pub pitch_deg: Comparison,
-    /// Decoded true speed converted to indicated via ISA density (DERIVED)
+    /// Decoded world speed converted to indicated via ISA density (DERIVED)
     /// versus cockpit indicated airspeed; unsaturated samples above 60 m/s.
     pub ias_isa_mps: Comparison,
 }

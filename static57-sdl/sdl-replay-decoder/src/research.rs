@@ -495,8 +495,8 @@ fn findings(d: &ResearchData) -> Vec<Finding> {
             add(format!("Author ({vehicle}) reached {v} m altitude."), Some(v), Some("m"), Evidence::Verified, "Maximum decoded position Y over author tracks.", vec![at_ref(&t.track_id, at)]);
         }
         if let Some((t, v, at)) = best(&|t| &t.speed_mps) {
-            let (ev, note) = if t.saturated_speed_samples > 0 { (Evidence::Derived, " (field saturated: true speed was at or above this)") } else { (Evidence::Verified, "") };
-            add(format!("Author ({vehicle}) reached {v} m/s true speed{note}."), Some(v), Some("m/s"), ev, "Maximum decoded speed over author tracks.", vec![at_ref(&t.track_id, at)]);
+            let (ev, note) = if t.saturated_speed_samples > 0 { (Evidence::Derived, " (field saturated: actual speed was at or above this)") } else { (Evidence::Verified, "") };
+            add(format!("Author ({vehicle}) reached {v} m/s ground speed{note}."), Some(v), Some("m/s"), ev, "Maximum decoded speed over author tracks.", vec![at_ref(&t.track_id, at)]);
         }
         let mbest = |f: &dyn Fn(&Maneuver) -> &Stat| -> Option<(&TrackResearch, f64, Option<At>)> {
             author_tracks

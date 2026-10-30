@@ -257,7 +257,7 @@ fn print_flight(name: &str, r: &FlightReport) {
         println!("                vertical speed m/s: {}", fmt_cmp(&v.vertical_speed_mps));
         println!("                roll deg: {}", fmt_cmp(&v.roll_deg));
         println!("                pitch deg: {}", fmt_cmp(&v.pitch_deg));
-        println!("                IAS (ISA from TAS) m/s: {}", fmt_cmp(&v.ias_isa_mps));
+        println!("                IAS estimate (ground speed, ISA) m/s: {}", fmt_cmp(&v.ias_isa_mps));
     } else {
         println!("  cockpit       no matched cockpit messages ({} messages, {} author samples)", v.cockpit_messages, v.author_samples);
     }

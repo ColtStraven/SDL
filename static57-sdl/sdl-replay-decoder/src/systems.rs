@@ -235,7 +235,7 @@ pub struct FuelObservation {
     pub start: f64,
     pub end: f64,
     pub duration_s: f64,
-    /// Units per second. Negative while burning.
+    /// kg per second. Negative while burning.
     pub rate_per_s: f64,
     pub refilled: bool,
     pub evidence: Evidence,

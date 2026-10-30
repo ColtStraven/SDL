@@ -218,7 +218,7 @@ pub fn render(d: &ResearchData) -> String {
     let _ = writeln!(m, "| Vertical speed vs cockpit, m/s | {} |", dist(&c.vertical_speed_mps.abs_error, 3));
     let _ = writeln!(m, "| Roll vs cockpit, deg | {} |", dist(&c.roll_deg.abs_error, 3));
     let _ = writeln!(m, "| Pitch vs cockpit, deg | {} |", dist(&c.pitch_deg.abs_error, 3));
-    let _ = writeln!(m, "| IAS (ISA from TAS) vs cockpit, m/s | {} |\n", dist(&c.ias_isa_mps.abs_error, 3));
+    let _ = writeln!(m, "| IAS estimate (ground speed, ISA) vs cockpit, m/s | {} |\n", dist(&c.ias_isa_mps.abs_error, 3));
 
     let _ = writeln!(m, "## 7. Aircraft systems\n");
     let y = &d.systems;
@@ -244,8 +244,8 @@ pub fn render(d: &ResearchData) -> String {
             m.push('\n');
         }
         if !y.fuel.is_empty() {
-            let _ = writeln!(m, "Fuel gauge candidate (cockpit id 195, unit not established):\n");
-            let _ = writeln!(m, "| Vehicle | Start | End | Duration s | Rate per s |\n|---|---|---|---|---|");
+            let _ = writeln!(m, "Fuel mass (cockpit id 195, matched to 8111 `Mfuel, kg` on three aircraft):\n");
+            let _ = writeln!(m, "| Vehicle | Start kg | End kg | Duration s | kg/s |\n|---|---|---|---|---|");
             for f in y.fuel.iter().take(6) {
                 let _ = writeln!(m, "| {} | {:.1} | {:.1} | {:.0} | {:.3} |", f.vehicle, f.start, f.end, f.duration_s, f.rate_per_s);
             }
