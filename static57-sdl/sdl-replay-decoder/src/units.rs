@@ -61,6 +61,18 @@ pub fn prefixed_strings(data: &[u8], min_len: usize) -> Vec<String> {
     out
 }
 
+/// Equipment strings that can be weapons: country-prefixed store names.
+/// Countermeasures, guns, belts and modifications are left out.
+pub fn weapon_equipment(equipment: &[String]) -> Vec<String> {
+    const PREFIXES: [&str; 13] = ["us_", "su_", "uk_", "fr_", "cn_", "jp_", "il_", "swd_", "swe_", "ger_", "germ_", "it_", "za_"];
+    equipment
+        .iter()
+        .filter(|s| PREFIXES.iter().any(|p| s.starts_with(p)))
+        .filter(|s| !["_belt", "_ltc_", "countermeasure", "_air_targets", "_gun", "_pod_gun"].iter().any(|x| s.contains(x)))
+        .cloned()
+        .collect()
+}
+
 fn parse_unit(created_ms: u32, e: &EntityCreate) -> Option<Unit> {
     let d = &e.data;
     if d.len() < 32 || d[28] != 0x30 || d[29] != 0x70 {

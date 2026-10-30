@@ -164,15 +164,15 @@ pub fn render(d: &ResearchData) -> String {
     let w = &d.weapons;
     let _ = writeln!(
         m,
-        "{} weapons tracked from {} records. Launcher attributed: {}. Author: {}. Named: {}. Kills linked: {} of {}.\n",
-        w.stats.weapons_tracked, w.stats.weapon_records, w.stats.weapons_with_launcher, w.stats.weapons_by_author, w.stats.weapons_named, w.stats.kills_linked_to_weapon, w.stats.kills_seen
+        "{} weapons tracked from {} records. Launcher attributed: {}. Author: {}. Named: {} ({} by kill record, {} by type id). Kills linked: {} of {}.\n",
+        w.stats.weapons_tracked, w.stats.weapon_records, w.stats.weapons_with_launcher, w.stats.weapons_by_author, w.stats.weapons_named, w.stats.named_by_kill_record, w.stats.named_by_type_id, w.stats.kills_linked_to_weapon, w.stats.kills_seen
     );
     for l in &w.limitations {
         let _ = writeln!(m, "- {l}");
     }
     m.push('\n');
     let mut shown: Vec<_> = w.events.iter().filter(|e| e.launcher.is_author || e.weapon_name.is_some()).collect();
-    shown.sort_by_key(|e| (!e.launcher.is_author, e.weapon_name.is_none(), e.trajectory.first_ms));
+    shown.sort_by_key(|e| (!e.launcher.is_author, e.outcome.status != "kill_linked", e.weapon_name.is_none(), e.trajectory.first_ms));
     if !shown.is_empty() {
         let _ = writeln!(m, "Author and named weapons:\n");
         let _ = writeln!(m, "| Weapon | Type | Name | Launcher | Launch alt m | Launcher speed m/s | ToF s | Range m | Max speed m/s | Target at launch m | Outcome |\n|---|---|---|---|---|---|---|---|---|---|---|");
@@ -298,15 +298,16 @@ pub fn render_summary(c: &CrossReplay) -> String {
     m.push('\n');
 
     let _ = writeln!(m, "## 3. Observed weapon performance\n");
-    let _ = writeln!(m, "Kill-linked shots only, so these are successful shots from any launcher, and they do not describe envelope limits or hit probability.\n");
-    let _ = writeln!(m, "| Weapon | S57 id | Shots | Launchers | ToF s (min/med/max) | Range m (min/med/max) | Max speed m/s | Launch alt m (min/max) | Target at launch m (min/max) |\n|---|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(m, "All named shots from any launcher. Names come from kill records or a shared per-replay type id. Flight figures use shots with at least 5 samples. Target distance exists only for kill-linked shots, and an unlinked shot is not proven a miss, so these figures do not describe envelope limits or hit probability. A launcher listed for a SAM can be an aircraft that passed the launch point.\n");
+    let _ = writeln!(m, "| Weapon | S57 id | Shots | Kill-linked | Launchers | ToF s (min/med/max) | Range m (min/med/max) | Max speed m/s | Launch alt m (min/max) | Target at launch m (min/max) |\n|---|---|---|---|---|---|---|---|---|---|");
     for w in &c.weapons {
         let _ = writeln!(
             m,
-            "| {} | {} | {} | {} | {} / {} / {} | {} / {} / {} | {} | {} / {} | {} / {} |",
+            "| {} | {} | {} | {} | {} | {} / {} / {} | {} / {} / {} | {} | {} / {} | {} / {} |",
             w.weapon_name,
             w.s57_weapon_id.as_deref().unwrap_or("-"),
             w.shots,
+            w.kill_linked,
             w.launchers.join(", "),
             num(w.time_of_flight_s.min),
             num(w.time_of_flight_s.p50),

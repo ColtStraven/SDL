@@ -67,6 +67,7 @@ fn genuine_research_reports() {
         .collect();
     files.sort();
     let mut all = Vec::new();
+    let mut holdout = (0u64, 0u64);
     for path in &files {
         let bytes = std::fs::read(path).unwrap();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
@@ -84,9 +85,22 @@ fn genuine_research_reports() {
             assert!(md.contains(&f.statement), "{name}: {}", f.id);
         }
         assert!(md.lines().count() < 260, "{name}: report too long ({} lines)", md.lines().count());
+        holdout.0 += w.holdout_type_id_correct;
+        holdout.1 += w.holdout_type_id_attempted;
+        // A type id never spans two store templates.
+        let mut templates: std::collections::HashMap<u32, &str> = std::collections::HashMap::new();
+        for e in &d.weapons.events {
+            if let Some(id) = e.type_id {
+                assert_eq!(*templates.entry(id).or_insert(e.template.as_str()), e.template, "{name}: type id {id}");
+            }
+            assert!(e.weapon_name.is_none() || e.weapon_name_source != "unavailable", "{name}");
+        }
         assert!(!md.contains("NaN") && !md.contains("inf "), "{name}");
         all.push(d);
     }
+    assert!(holdout.1 >= 100, "too few hold-out cases: {holdout:?}");
+    assert!(holdout.0 as f64 >= 0.95 * holdout.1 as f64, "type-id naming hold-out fell: {holdout:?}");
+    eprintln!("type-id hold-out {} of {}", holdout.0, holdout.1);
     let dirs: Vec<String> = all.iter().map(|d| d.replay.file_name.clone()).collect();
     let s = survey::analyze(&all, &dirs);
     assert_eq!(s.totals.replays as usize, files.len());

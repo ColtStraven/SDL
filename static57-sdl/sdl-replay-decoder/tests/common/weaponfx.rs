@@ -45,7 +45,12 @@ pub fn unit_data(uid: u16, spawn: [f32; 3], strings: &[&str]) -> Vec<u8> {
 
 /// Store creation data with the marker layout seen on real replays.
 pub fn store_data(launch: [f32; 3]) -> Vec<u8> {
-    let mut d = vec![0x00, 0x02, 0x00, 0x0A, 0x77, 0x05, 0x01, 0x00, 0x00, 1, 2, 3, 4, 0, 0, 0x13, 0x00];
+    store_data_typed(0x0A, launch)
+}
+
+/// Store creation data with a chosen type id (one varint byte below 128).
+pub fn store_data_typed(type_id: u8, launch: [f32; 3]) -> Vec<u8> {
+    let mut d = vec![0x00, 0x02, 0x00, type_id, 0x77, 0x05, 0x01, 0x00, 0x00, 1, 2, 3, 4, 0, 0, 0x13, 0x00];
     for v in launch {
         d.extend_from_slice(&v.to_le_bytes());
     }

@@ -4,8 +4,10 @@
 //! - Entity link: a `ShellsData` id is `entity_index << 10 | (generation + 2)`.
 //! - Launcher: DERIVED by geometry (nearest aircraft to the creation position
 //!   at creation time). No launcher field has been decoded.
-//! - Weapon name: taken from a kill record linked by geometry and time, so it
-//!   exists only for weapons that killed something.
+//! - Weapon name: a linked kill record, or another weapon with the same
+//!   per-replay type id (98.8% in hold-out). The launcher's equipment list
+//!   failed hold-out, so it supplies candidates only, never a name. See
+//!   `docs/FINDINGS_M5_WEAPON_TYPE.md`.
 //! - Outcome: a kill link is DERIVED. Any other weapon has an unknown outcome:
 //!   the last observed sample is not an established impact.
 
@@ -13,9 +15,9 @@ use crate::combat::KillEvent;
 use crate::ecs::EntityCreate;
 use crate::evidence::{hex, Evidence};
 use crate::shells::ShellsMessage;
-use crate::units::Registry;
+use crate::units::{weapon_equipment, Registry};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Store templates that produce in-flight records.
 pub fn is_store_template(t: &str) -> bool {
@@ -117,8 +119,18 @@ pub struct WeaponEvent {
     pub list: u8,
     /// Opaque bytes from the creation record; meaning not established.
     pub creation_prefix: Option<String>,
+    /// Per-replay weapon type id from the creation record.
+    pub type_id: Option<u32>,
+    /// In-flight records carry a block in the seeker position. Bombs have
+    /// it too, so this does not mean the weapon is guided.
+    pub has_seeker_block: bool,
     pub weapon_name: Option<String>,
+    /// `kill_record`, `replay_type_id`, or `unavailable`.
+    pub weapon_name_source: &'static str,
     pub weapon_name_evidence: Evidence,
+    /// Unconfirmed possibilities when no name could be established: disputed
+    /// type-id names, or the launcher's equipment list.
+    pub weapon_candidates: Vec<String>,
     pub launch_time_ms: Option<u32>,
     pub launch_time_source: &'static str,
     pub launcher: Launcher,
@@ -154,6 +166,7 @@ struct Created {
     t: u32,
     template: String,
     prefix: Option<String>,
+    type_id: Option<u32>,
     position: Option<[f32; 3]>,
     nearest: Option<(u16, f64, f64, f64)>,
 }
@@ -163,6 +176,7 @@ struct Track {
     /// Launches of this entity id seen before this track.
     reuse: u32,
     list: u8,
+    seeker_block: bool,
     created: Option<Created>,
     samples: Vec<WeaponSample>,
 }
@@ -179,6 +193,14 @@ pub struct WeaponStats {
     pub weapons_with_launcher: u64,
     pub weapons_by_author: u64,
     pub weapons_named: u64,
+    pub named_by_kill_record: u64,
+    pub named_by_type_id: u64,
+    /// Leave-one-out: kill-named weapons whose name each method recovers
+    /// with that kill hidden, and how many it attempted.
+    pub holdout_type_id_correct: u64,
+    pub holdout_type_id_attempted: u64,
+    pub holdout_equipment_correct: u64,
+    pub holdout_equipment_attempted: u64,
     pub kills_seen: u64,
     pub kills_linked_to_weapon: u64,
 }
@@ -200,8 +222,84 @@ fn creation_position(d: &[u8]) -> Option<[f32; 3]> {
     (p[0].abs() < 3e5 && p[2].abs() < 3e5 && p[1] > -500.0 && p[1] < 40_000.0).then_some(p)
 }
 
-/// Bytes before the marker. Not a weapon type: one missile model shows many
-/// different prefixes. Preserved raw for later investigation.
+/// First varint of a creation record: a per-replay weapon type id. Ids are
+/// allocated in blocks per loadout and do not carry across replays.
+fn creation_type_id(d: &[u8]) -> Option<u32> {
+    crate::bitstream::BitReader::new(d.get(3..)?).compressed("type_id").ok().map(|v| v as u32)
+}
+
+/// Same weapon, different launcher variant.
+pub fn base_name(n: &str) -> &str {
+    n.trim_end_matches("_default")
+}
+
+/// Gun rounds never appear in `ShellsData`: a kill by one is not a store kill.
+pub fn is_gun_round(n: &str) -> bool {
+    const ROUND: [&str; 12] = ["ap", "api", "aphe", "he", "hei", "i", "t", "frag", "ball", "apit", "heat", "hvap"];
+    if n.split('_').all(|t| ROUND.contains(&t.to_ascii_lowercase().as_str())) {
+        return true;
+    }
+    // Caliber prefix, as in `30mm_UBR6` or `35_228mm_aphe_i` (35 x 228 mm).
+    n.split_once("mm_").and_then(|(c, _)| c.split('_').next()?.parse::<u32>().ok()).is_some_and(|c| c <= 57)
+}
+
+#[derive(Clone)]
+struct NameQuery {
+    type_id: Option<u32>,
+    template: String,
+    equipment: Vec<String>,
+}
+
+/// Names reported for each type id, and templates seen for each name.
+#[derive(Default)]
+struct NameEvidence {
+    by_id: HashMap<u32, BTreeMap<String, u32>>,
+    templates: HashMap<String, BTreeSet<String>>,
+}
+
+impl NameEvidence {
+    fn add(&mut self, id: Option<u32>, name: &str, template: &str, by: i32) {
+        let n = base_name(name).to_string();
+        self.templates.entry(n.clone()).or_default().insert(template.to_string());
+        if let Some(id) = id {
+            let c = self.by_id.entry(id).or_default().entry(n).or_default();
+            *c = c.saturating_add_signed(by);
+        }
+    }
+
+    /// The clear majority name of a type id. Otherwise the disputed names.
+    fn by_type_id(&self, id: Option<u32>) -> Result<Option<String>, Vec<String>> {
+        let Some(m) = id.and_then(|i| self.by_id.get(&i)) else { return Ok(None) };
+        let total: u32 = m.values().sum();
+        let Some((name, n)) = m.iter().max_by_key(|x| *x.1) else { return Ok(None) };
+        if total == 0 {
+            Ok(None)
+        } else if *n * 3 >= total * 2 {
+            Ok(Some(name.clone()))
+        } else {
+            Err(m.iter().filter(|x| *x.1 > 0).map(|x| x.0.clone()).collect())
+        }
+    }
+
+    /// Equipment names still possible for this weapon.
+    fn candidates(&self, q: &NameQuery) -> Vec<String> {
+        let mut out: Vec<String> = q
+            .equipment
+            .iter()
+            .map(|n| base_name(n).to_string())
+            .filter(|n| {
+                // A name known from another template cannot be this weapon.
+                self.templates.get(n).is_none_or(|t| t.contains(&q.template))
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+}
+
+/// Bytes before the marker, preserved raw. The first varint is the type id;
+/// the rest are not established.
 fn creation_prefix(d: &[u8]) -> Option<String> {
     Some(hex(&d[3..creation_marker(d)?]))
 }
@@ -242,7 +340,7 @@ impl Collector {
         let nearest = position.and_then(|p| self.nearest(t, p64(p), 1_000));
         self.created.insert(
             entity_key(e.eid),
-            Created { t, template: e.template.clone(), prefix: creation_prefix(&e.data), position, nearest },
+            Created { t, template: e.template.clone(), prefix: creation_prefix(&e.data), type_id: creation_type_id(&e.data), position, nearest },
         );
     }
 
@@ -278,6 +376,7 @@ impl Collector {
                         key,
                         reuse: other.map_or(0, |o| o.0 + 1),
                         list: r.list,
+                        seeker_block: false,
                         created: self.created.get(&key).cloned(),
                         samples: Vec::new(),
                     });
@@ -285,6 +384,7 @@ impl Collector {
                     self.tracks.len() - 1
                 }
             };
+            self.tracks[i].seeker_block |= r.dynamics.as_ref().is_some_and(|d| d.seeker_bits.is_some());
             self.tracks[i].samples.push(WeaponSample { timestamp_ms: t, packet_index, position_m: r.position_m, velocity_mps, time_since_launch_s });
         }
     }
@@ -350,6 +450,9 @@ impl Collector {
         for (ki, k) in self.kills.iter().enumerate() {
             let Some(victim) = k.victim_uid else { continue };
             let Some(killer) = k.killer_uid else { continue };
+            if k.weapon.as_deref().is_some_and(is_gun_round) {
+                continue;
+            }
             let mut best: Option<(usize, f64)> = None;
             for (ti, tr) in tracks.iter().enumerate() {
                 let last = tr.samples.last().unwrap();
@@ -382,9 +485,54 @@ impl Collector {
             }
         }
 
+        // Weapon naming. A type id shares one launcher vehicle, so a launcher
+        // known for any weapon of an id supplies equipment for all of them.
+        let mut id_launcher: HashMap<u32, (u16, u32)> = HashMap::new();
+        for (tr, p) in tracks.iter().zip(&preps) {
+            if let (Some(id), Some(uid)) = (tr.created.as_ref().and_then(|c| c.type_id), p.launcher.uid) {
+                id_launcher.entry(id).or_insert((uid, tr.samples[0].timestamp_ms));
+            }
+        }
+        let queries: Vec<NameQuery> = tracks
+            .iter()
+            .zip(&preps)
+            .map(|(tr, p)| {
+                let type_id = tr.created.as_ref().and_then(|c| c.type_id);
+                let at = tr.samples[0].timestamp_ms;
+                let launcher = p.launcher.uid.map(|u| (u, at)).or_else(|| type_id.and_then(|i| id_launcher.get(&i).copied()));
+                NameQuery {
+                    type_id,
+                    template: tr.created.as_ref().map_or_else(|| "unlinked".to_string(), |c| c.template.clone()),
+                    equipment: launcher.and_then(|(u, t)| registry.resolve(u, t)).map(|u| weapon_equipment(&u.equipment)).unwrap_or_default(),
+                }
+            })
+            .collect();
+        let kill_name = |p: &Prep| p.kill.and_then(|(ki, _)| self.kills[ki].weapon.clone());
+        let mut evidence = NameEvidence::default();
+        for (p, q) in preps.iter().zip(&queries) {
+            if let Some(n) = kill_name(p) {
+                evidence.add(q.type_id, &n, &q.template, 1);
+            }
+        }
+        // Hold-out: hide each kill-confirmed name and try to recover it.
+        for (p, q) in preps.iter().zip(&queries) {
+            let Some(n) = kill_name(p) else { continue };
+            let truth = base_name(&n).to_string();
+            evidence.add(q.type_id, &n, &q.template, -1);
+            if let Ok(Some(guess)) = evidence.by_type_id(q.type_id) {
+                self.stats.holdout_type_id_attempted += 1;
+                self.stats.holdout_type_id_correct += (guess == truth) as u64;
+            }
+            if let [one] = evidence.candidates(q).as_slice() {
+                self.stats.holdout_equipment_attempted += 1;
+                self.stats.holdout_equipment_correct += (*one == truth) as u64;
+            }
+            evidence.add(q.type_id, &n, &q.template, 1);
+        }
+
         let mut events = Vec::with_capacity(tracks.len());
         let mut samples_out = Vec::with_capacity(tracks.len());
-        for (tr, mut p) in tracks.into_iter().zip(preps) {
+        for ((tr, mut p), query) in tracks.into_iter().zip(preps).zip(queries) {
             let s = &tr.samples;
             let (first, last) = (s[0], *s.last().unwrap());
             let created = tr.created.as_ref();
@@ -437,7 +585,20 @@ impl Collector {
                     evidence: Evidence::Unknown,
                 },
             };
-            let weapon_name = p.kill.and_then(|(ki, _)| self.kills[ki].weapon.clone());
+            let killed_with = p.kill.and_then(|(ki, _)| self.kills[ki].weapon.clone());
+            let (weapon_name, weapon_name_source, weapon_name_evidence, weapon_candidates) = if let Some(n) = killed_with {
+                self.stats.named_by_kill_record += 1;
+                (Some(n), "kill_record", Evidence::Derived, Vec::new())
+            } else {
+                match evidence.by_type_id(query.type_id) {
+                    Ok(Some(n)) => {
+                        self.stats.named_by_type_id += 1;
+                        (Some(n), "replay_type_id", Evidence::Derived, Vec::new())
+                    }
+                    Err(disputed) => (None, "unavailable", Evidence::Unknown, disputed),
+                    Ok(None) => (None, "unavailable", Evidence::Unknown, evidence.candidates(&query)),
+                }
+            };
 
             self.stats.weapons_tracked += 1;
             self.stats.weapons_linked_to_creation += created.is_some() as u64;
@@ -451,8 +612,12 @@ impl Collector {
                 template: created.map(|c| c.template.clone()).unwrap_or_else(|| "unlinked".into()),
                 list: tr.list,
                 creation_prefix: created.and_then(|c| c.prefix.clone()),
-                weapon_name_evidence: if weapon_name.is_some() { Evidence::Derived } else { Evidence::Unknown },
+                type_id: query.type_id,
+                has_seeker_block: tr.seeker_block,
                 weapon_name,
+                weapon_name_source,
+                weapon_name_evidence,
+                weapon_candidates,
                 launch_time_ms: p.launch_time_ms,
                 launch_time_source: p.launch_time_source,
                 launcher: p.launcher,

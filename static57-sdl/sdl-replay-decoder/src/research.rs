@@ -253,7 +253,7 @@ pub fn field_coverage() -> Vec<FieldCoverage> {
         f("engine_state", "raw_only", Reported, "State byte exported; meanings reported, not validated. Power and health fields not scaled."),
         f("weapon_trajectory", "decoded", Verified, "MPI 0xF0DB position, velocity, time since launch. All messages consume their declared bit length."),
         f("weapon_launch", "partial", Derived, "Launch position from ECS creation; launch time from timer. Launcher by proximity or kill record."),
-        f("weapon_identity", "partial", Derived, "Name known only for kill-linked weapons. No type field decoded, so unnamed weapons stay unnamed."),
+        f("weapon_identity", "partial", Derived, "Kill records name some weapons; the per-replay type id carries a name to others of that type (98.8% in hold-out). Types with no kill stay unnamed."),
         f("weapon_outcome", "partial", Derived, "Kill linkage by geometry and killer. All other outcomes unknown; last sample is not an established impact."),
         f("battle_log", "partial", Verified, "Kills and damage: uids, killer vehicle, weapon name. Other fields not decoded."),
         f("radar_sensors", "not_decoded", Unknown, "Sensor records delimited in type 2, values not interpreted."),
@@ -547,7 +547,7 @@ fn questions(d: &ResearchData) -> Vec<String> {
     }
     let unnamed = d.weapons.events.iter().filter(|w| w.weapon_name.is_none()).count();
     if unnamed > 0 {
-        q.push(format!("{unnamed} weapons have no name: no weapon-type field is decoded yet, so only kill-linked weapons are named."));
+        q.push(format!("{unnamed} weapons have no name: their type id has no kill record in this replay. Pooling replays cannot help, since ids are per replay."));
     }
     let unknown = d.weapons.events.iter().filter(|w| w.outcome.status == "unknown").count();
     if unknown > 0 {
@@ -643,7 +643,7 @@ pub fn run(file_name: &str, file: &[u8], db: Option<&Databases>) -> io::Result<R
         by_template,
         events: x.weapons.clone(),
         limitations: vec![
-            "Weapon names exist only for kill-linked weapons, so named statistics are biased toward successful shots.",
+            "A name comes from a kill record or a shared type id. Types that never killed stay unnamed, so named statistics still lean toward effective weapons.",
             "The last observed sample is not an established impact. End time uncertainty is the sample interval.",
             "Launchers are attributed by geometry or kill record, not by a decoded launcher field.",
             "Sample spacing varies from 20 ms to over 1 s depending on network relevance.",

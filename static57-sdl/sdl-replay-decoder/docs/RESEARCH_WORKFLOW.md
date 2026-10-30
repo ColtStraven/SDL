@@ -44,7 +44,7 @@ Reports are generated from the JSON datasets alone, and tests check that they ag
 
 ## Cautions for analysis
 
-- **Weapon results are success-biased.** Only kill-linked weapons have names. Do not infer hit probability or envelope limits from them.
+- **Weapon results are not an envelope.** Names come from kill records or a shared per-replay type id (98.8% in hold-out), so types that never killed stay unnamed. An unknown outcome is not proof of a miss, and only kill-linked shots have a target. Do not infer hit probability or envelope limits from them.
 - **A kill link is a candidate,** not proof that the weapon caused the kill.
 - **Launchers are attributed by geometry or kill record,** not read from a field.
 - **Remote aircraft are network copies.** Maneuver figures are produced for the recording author only.
@@ -57,4 +57,4 @@ Reports are generated from the JSON datasets alone, and tests check that they ag
 
 With `--db-dir`, SDL reads `static57-war-thunder-aircraft.json` and `static57-war-thunder-weapons.json` and maps names to permanent ids. Aircraft match on the wiki slug. Weapons match on an exact designator, and an ambiguous name stays unmapped. `static57-war-thunder-threats.json` was not found in the Strike Master folder on 2026-10-30.
 
-Each observed shot appears in `strike_master.proposals` in `research-data.json` with status `proposed_for_review`, its launch conditions, measurements, uncertainty and provenance. Nothing is applied automatically.
+Each named shot appears in `strike_master.proposals` in `research-data.json` with status `proposed_for_review`, its name source, launch conditions, measurements, uncertainty and provenance. Nothing is applied automatically.

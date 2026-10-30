@@ -18,11 +18,11 @@ Its foundation is a native `.wrpl` replay decoder, written in Rust and owned by 
 
 The decoder is validated on **27 genuine War Thunder 2.59 client replays** (format `0x00018C1C`, Zstandard), with 4,086,169 packets framed and every byte accounted for. All 103,698 aircraft sync packets decode, giving 2,468,023 timestamped 3D aircraft samples in 2,460 provisional track segments. The recording author's decoded altitude, attitude and vertical speed agree with the replay's own cockpit instruments in 19 replays: median errors of 0.000–0.65 m, 0.002–0.24° roll and 0.02–0.08° pitch. See [COMPATIBILITY.md](static57-sdl/sdl-replay-decoder/docs/COMPATIBILITY.md) and [FORMAT_FINDINGS.md](static57-sdl/sdl-replay-decoder/docs/FORMAT_FINDINGS.md).
 
-Across 42 replays, SDL now also tracks 5,817 weapons from launch through flight, resolves vehicles for most aircraft tracks, and links 285 weapons to kills.
+Across 42 replays, SDL now also tracks 5,817 weapons from launch through flight, resolves vehicles for most aircraft tracks, names 3,284 of them (98.8% in a hold-out test), and links 282 to kills.
 
 SDL is a scientific extraction and reporting engine for Static 57 avionics research, not a replay viewer. See the [research workflow](static57-sdl/sdl-replay-decoder/docs/RESEARCH_WORKFLOW.md).
 
-Weapon types are known only for kill-linked weapons. Sensors, seekers and ground units are **not decoded yet**, and the map-north orientation of the horizontal axes is unresolved.
+Weapon names are inferred, not read from a decoded type field. Sensors, seekers and ground units are **not decoded yet**, and the map-north orientation of the horizontal axes is unresolved.
 
 ## Repository layout
 

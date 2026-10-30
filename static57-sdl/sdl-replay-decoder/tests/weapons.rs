@@ -7,8 +7,8 @@ use sdl_replay_decoder::ecs::{self, EntityCreate, Templates};
 use sdl_replay_decoder::evidence::Evidence;
 use sdl_replay_decoder::idfield;
 use sdl_replay_decoder::shells;
-use sdl_replay_decoder::units::{prefixed_strings, Registry};
-use sdl_replay_decoder::weapons::{entity_key, shell_key, AircraftHistory, Collector};
+use sdl_replay_decoder::units::{prefixed_strings, weapon_equipment, Registry};
+use sdl_replay_decoder::weapons::{base_name, entity_key, is_gun_round, shell_key, AircraftHistory, Collector};
 
 const EID: u32 = (3 << 22) | 2888;
 
@@ -262,4 +262,126 @@ fn weapon_without_creation_is_explicitly_unavailable() {
     assert_eq!(w.launcher.evidence, Evidence::Unknown);
     assert_eq!(w.launch_time_ms, Some(2000));
     assert_eq!(w.trajectory.max_sample_interval_s, None);
+}
+
+/// Launch one more weapon of `type_id` from aircraft 10 that ends far from
+/// the target, so it cannot link to a kill.
+fn extra_shot(s: &mut Scene, eid: u32, type_id: u8) {
+    s.c.push_aircraft(1000, 10, [1250.0, 2000.0, 0.0], [250.0, 0.0, 0.0]);
+    s.c.push_create(1000, &create(eid, "rocket", store_data_typed(type_id, [1255.0, 2000.0, 0.0])));
+    let m = shells::decode(&shells_payload(eid, [1500.0, 2000.0, 9000.0], [700.0, 0.0, 0.0], 1.0)).unwrap().unwrap();
+    s.c.push_shells(6, 2000, &m);
+}
+
+fn unit_with(equipment: &[&str]) -> Registry {
+    let mut strings = vec!["f-5e", "t1_player01_0", "custom1"];
+    strings.extend_from_slice(equipment);
+    let mut r = Registry::default();
+    r.push(0, &create(1, "aircraft+player_unit", unit_data(10, [0.0; 3], &strings)));
+    r
+}
+
+#[test]
+fn type_id_carries_a_kill_name_to_other_shots() {
+    let mut s = scene(); // the scene's weapon has type id 0x0A
+    extra_shot(&mut s, (3 << 22) | 2901, 0x0A);
+    s.c.push_kill(kill(3200, 10, "us_aim9j_sidewinder_default"));
+    let (ev, _, stats) = s.c.finish(&Registry::default(), &s.h, &[]);
+    let hit = ev.iter().find(|w| w.outcome.status == "kill_linked").unwrap();
+    assert_eq!(hit.weapon_name_source, "kill_record");
+    assert_eq!(hit.weapon_name.as_deref(), Some("us_aim9j_sidewinder_default"));
+    let other = ev.iter().find(|w| w.outcome.status == "unknown").unwrap();
+    assert_eq!(other.type_id, Some(0x0A));
+    assert_eq!(other.weapon_name.as_deref(), Some("us_aim9j_sidewinder"));
+    assert_eq!(other.weapon_name_source, "replay_type_id");
+    assert_eq!(other.weapon_name_evidence, Evidence::Derived);
+    assert_eq!(other.outcome.evidence, Evidence::Unknown, "a name does not establish an outcome");
+    assert_eq!(stats.named_by_kill_record, 1);
+    assert_eq!(stats.named_by_type_id, 1);
+    assert_eq!(stats.weapons_named, 2);
+}
+
+#[test]
+fn different_type_id_is_not_named() {
+    let mut s = scene();
+    extra_shot(&mut s, (3 << 22) | 2901, 0x0B);
+    s.c.push_kill(kill(3200, 10, "us_aim9j_sidewinder"));
+    let (ev, ..) = s.c.finish(&Registry::default(), &s.h, &[]);
+    let other = ev.iter().find(|w| w.type_id == Some(0x0B)).unwrap();
+    assert_eq!(other.weapon_name, None);
+    assert_eq!(other.weapon_name_source, "unavailable");
+    assert_eq!(other.weapon_name_evidence, Evidence::Unknown);
+}
+
+#[test]
+fn equipment_gives_candidates_but_never_a_name() {
+    let s = scene();
+    let reg = unit_with(&["us_aim9j_sidewinder", "countermeasure_split_launcher_jet"]);
+    let (ev, ..) = s.c.finish(&reg, &s.h, &[]);
+    let w = &ev[0];
+    assert_eq!(w.weapon_name, None, "equipment failed hold-out and must not name a weapon");
+    assert_eq!(w.weapon_candidates, ["us_aim9j_sidewinder"]);
+    assert_eq!(w.weapon_name_source, "unavailable");
+}
+
+#[test]
+fn disputed_type_id_stays_unnamed_and_lists_the_names() {
+    // Two weapons of one id, each killing with a different recorded name.
+    let mut s = scene();
+    let other = (3 << 22) | 2901;
+    s.c.push_create(1000, &create(other, "rocket", store_data_typed(0x0A, [1255.0, 2000.0, 0.0])));
+    let m = shells::decode(&shells_payload(other, [3990.0, 2100.0, 0.0], [700.0, 0.0, 0.0], 2.0)).unwrap().unwrap();
+    s.c.push_shells(5, 3000, &m);
+    extra_shot(&mut s, (3 << 22) | 2902, 0x0A);
+    s.h.push(21, 2900, [3995.0, 2100.0, 0.0]);
+    s.c.push_kill(kill(3100, 10, "us_aim9j_sidewinder"));
+    s.c.push_kill(KillEvent { victim_uid: Some(21), weapon: Some("us_aim7e_sparrow".into()), timestamp_ms: 2950, ..kill(0, 10, "") });
+    let (ev, ..) = s.c.finish(&Registry::default(), &s.h, &[]);
+    assert_eq!(ev.iter().filter(|w| w.outcome.status == "kill_linked").count(), 2);
+    let third = ev.iter().find(|w| w.outcome.status == "unknown").unwrap();
+    assert_eq!(third.weapon_name, None);
+    assert_eq!(third.weapon_candidates, ["us_aim7e_sparrow", "us_aim9j_sidewinder"]);
+}
+
+#[test]
+fn hold_out_hides_each_kill_name() {
+    let mut s = scene();
+    // Second kill-linked weapon of the same type.
+    let other = (3 << 22) | 2901;
+    s.c.push_create(1000, &create(other, "rocket", store_data_typed(0x0A, [1255.0, 2000.0, 0.0])));
+    let m = shells::decode(&shells_payload(other, [3990.0, 2100.0, 0.0], [700.0, 0.0, 0.0], 2.0)).unwrap().unwrap();
+    s.c.push_shells(5, 3000, &m);
+    s.h.push(21, 2900, [3995.0, 2100.0, 0.0]);
+    s.c.push_kill(kill(3100, 10, "us_aim9j_sidewinder"));
+    s.c.push_kill(KillEvent { victim_uid: Some(21), timestamp_ms: 2950, ..kill(0, 10, "us_aim9j_sidewinder_default") });
+    let (.., stats) = s.c.finish(&Registry::default(), &s.h, &[]);
+    assert_eq!(stats.holdout_type_id_attempted, 2);
+    assert_eq!(stats.holdout_type_id_correct, 2);
+}
+
+#[test]
+fn gun_kill_does_not_link_to_a_passing_weapon() {
+    let mut s = scene();
+    s.c.push_kill(kill(3200, 10, "30mm_UBR6"));
+    let (ev, _, stats) = s.c.finish(&Registry::default(), &s.h, &[]);
+    assert_eq!(ev[0].outcome.status, "unknown");
+    assert_eq!(ev[0].weapon_name, None);
+    assert_eq!(stats.kills_linked_to_weapon, 0);
+}
+
+#[test]
+fn gun_rounds_and_stores_are_told_apart() {
+    for n in ["ap_i", "ap_i_t", "he_frag_i", "frag_i_t", "30mm_UBR6", "23mm_apit", "35_228mm_aphe_i"] {
+        assert!(is_gun_round(n), "{n}");
+    }
+    for n in ["us_aim9l_sidewinder", "72mm_9m39", "163mm_roland_3", "us_agm_65b", "120mm_9m37m"] {
+        assert!(!is_gun_round(n), "{n}");
+    }
+    assert_eq!(base_name("us_aim7p_sparrow_fa_18_default"), "us_aim7p_sparrow_fa_18");
+}
+
+#[test]
+fn equipment_filter_keeps_stores_only() {
+    let e = ["default", "countermeasure_split_launcher_jet", "cannonAkan_m75", "akan_m75_belt_pack", "swd_ltc_bol", "f_4c_g_suit", "swd_rb74", "swd_rb99", "swe_135mm_m70b"].map(String::from);
+    assert_eq!(weapon_equipment(&e), ["swd_rb74", "swd_rb99", "swe_135mm_m70b"]);
 }

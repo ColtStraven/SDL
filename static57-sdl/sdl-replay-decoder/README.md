@@ -13,7 +13,7 @@ Static 57 — Simulation Dynamics Laboratory (S57-003): a native War Thunder `.w
 
 All are validated on 42 genuine 2.59 client replays (format `0x00018C1C`, zstd); see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
-SDL produces research reports from replays: aircraft tracks with vehicle identity, weapon trajectories with launch conditions, battle-log outcomes, and proposals for review against the Strike Master databases. Weapon types are known only for kill-linked weapons. Sensors, seekers and ground units are not decoded, and the horizontal map frame is not yet tied to map north. See [docs/RESEARCH_WORKFLOW.md](docs/RESEARCH_WORKFLOW.md).
+SDL produces research reports from replays: aircraft tracks with vehicle identity, weapon trajectories with launch conditions, battle-log outcomes, and proposals for review against the Strike Master databases. Weapon types are inferred from kill records through a per-replay type id, and 3,284 of 5,817 tracked weapons are named. Sensors, seekers and ground units are not decoded, and the horizontal map frame is not yet tied to map north. See [docs/RESEARCH_WORKFLOW.md](docs/RESEARCH_WORKFLOW.md).
 
 ## Build
 
@@ -49,8 +49,8 @@ Replays are opened read-only. Output is never written next to the replay unless 
 ## Tests
 
 ```
-cargo test                                   # synthetic fixtures (102 tests)
-cargo test --release -- --include-ignored    # plus 3 genuine-replay tests (105 total)
+cargo test                                   # synthetic fixtures (110 tests)
+cargo test --release -- --include-ignored    # plus 3 genuine-replay tests (113 total)
 ```
 
 The genuine-replay tests read `SDL_REPLAY_DIR`, or `%LOCALAPPDATA%\WarThunder\Replays` when that variable is unset. Passing the synthetic fixtures alone does **not** demonstrate War Thunder compatibility.
@@ -64,6 +64,7 @@ Research probes used during format work are in `examples/`, and run with `cargo 
 - [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md): every genuine replay tested, with SHA-256 and per-replay validation and extraction
 - [docs/RESEARCH_WORKFLOW.md](docs/RESEARCH_WORKFLOW.md): how to generate and read research reports
 - [docs/FINDINGS_M4_WEAPONS_IDENTITY.md](docs/FINDINGS_M4_WEAPONS_IDENTITY.md): identity, battle log and weapon structures
+- [docs/FINDINGS_M5_WEAPON_TYPE.md](docs/FINDINGS_M5_WEAPON_TYPE.md): weapon naming and its validation
 - [docs/examples/](docs/examples/): real generated reports
 - [docs/TELEMETRY_8111.md](docs/TELEMETRY_8111.md): plan for validation against localhost:8111 recordings (not yet executed)
 

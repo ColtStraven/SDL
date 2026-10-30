@@ -1,6 +1,6 @@
 # S57-003 SDL — Identity, Battle Log and Weapon Findings (Milestone 4)
 
-Decoder: `sdl-replay-decoder` 0.3.0. Date: 2026-10-30.
+Decoder: `sdl-replay-decoder` 0.3.0. Date: 2026-10-30. Weapon naming was extended in 0.4.0: see [FINDINGS_M5_WEAPON_TYPE.md](FINDINGS_M5_WEAPON_TYPE.md), which supersedes the naming figures and the first bias limit below.
 Evidence base: 42 genuine client replays (27 from Milestones 1–3 plus 15 recorded 2026-10-29, game version field 2.59.0.92), all format `0x00018C1C`. See [COMPATIBILITY.md](COMPATIBILITY.md).
 Reproduce: `sdl-replay-decoder research-survey <Replays folder>`; research probes are in `examples/`.
 
@@ -34,7 +34,7 @@ Classes as in [FORMAT_FINDINGS.md](FORMAT_FINDINGS.md). "SDL finding" marks resu
 | Field | Location | Class | Evidence |
 |---|---|---|---|
 | Launch position | three `f32`, 11 bytes after the `01 00` marker (marker found at byte 6–10) | DERIVED (SDL finding) | Agrees with the first in-flight sample and with launchers. 5,525 of 5,817 weapons have one (the other 292 have no creation record) |
-| Bytes before the marker | raw `creation_prefix` | UNKNOWN | **Not a weapon type:** one missile model shows many prefixes. Tested and rejected as an owner uid too |
+| Bytes before the marker | raw `creation_prefix` | UNKNOWN | **Not a global type:** one missile model shows many prefixes. Rejected as an owner uid. The first varint was later found to be a per-replay type id |
 
 Weapon ids are reused within a replay. SDL starts a new track when the timer runs backwards or after 15 s of silence.
 

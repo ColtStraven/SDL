@@ -10,6 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const SUMMARY_SCHEMA: &str = "static57.sdl.research-summary/0.2";
 /// Robust z-score beyond which a replay is listed as an outlier.
 pub const OUTLIER_Z: f64 = 3.5;
+/// Fewest samples for a shot to enter flight statistics: shorter tracks are
+/// glimpses, not flights.
+pub const MIN_SHOT_SAMPLES: u64 = 5;
 /// Fewest comparisons for a replay to enter a consistency range.
 pub const MIN_COMPARISONS: u64 = 200;
 
@@ -65,6 +68,7 @@ pub struct WeaponSummary {
     pub weapon_name: String,
     pub s57_weapon_id: Option<String>,
     pub shots: u64,
+    pub kill_linked: u64,
     pub launchers: Vec<String>,
     pub time_of_flight_s: Stat,
     pub ground_range_m: Stat,
@@ -227,13 +231,15 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
         .into_iter()
         .map(|(weapon_name, ps)| {
             let launchers: BTreeSet<String> = ps.iter().filter_map(|p| p.vehicle.clone()).collect();
+            let full = || ps.iter().filter(|p| p.samples >= MIN_SHOT_SAMPLES);
             WeaponSummary {
                 s57_weapon_id: ps.iter().find_map(|p| p.s57_weapon_id.clone()),
                 shots: ps.len() as u64,
+                kill_linked: ps.iter().filter(|p| p.outcome == "kill_linked").count() as u64,
                 launchers: launchers.into_iter().collect(),
-                time_of_flight_s: plain_stat(ps.iter().filter_map(|p| p.time_of_flight_s).collect()),
-                ground_range_m: plain_stat(ps.iter().map(|p| p.ground_range_m).collect()),
-                max_speed_mps: plain_stat(ps.iter().map(|p| p.max_speed_mps).collect()),
+                time_of_flight_s: plain_stat(full().filter_map(|p| p.time_of_flight_s).collect()),
+                ground_range_m: plain_stat(full().map(|p| p.ground_range_m).collect()),
+                max_speed_mps: plain_stat(full().map(|p| p.max_speed_mps).collect()),
                 launch_altitude_m: plain_stat(ps.iter().filter_map(|p| p.launch_altitude_m).collect()),
                 target_distance_at_launch_m: plain_stat(ps.iter().filter_map(|p| p.target_distance_at_launch_m).collect()),
                 caution: crate::strikemaster::PROPOSAL_CAUTION,
@@ -269,7 +275,7 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
     let mut recommendations = vec![
         Recommendation {
             title: "Controlled LAR shots",
-            detail: "Fly a test mission firing one missile type at a non-maneuvering target across a grid of launch range, altitude and aspect, including deliberate misses. Combat data here is success-biased; a grid gives the envelope edge.".to_string(),
+            detail: "Fly a test mission firing one missile type at a non-maneuvering target across a grid of launch range, altitude and aspect, including deliberate misses. Combat shots have no established target unless they killed, so only a grid gives the envelope edge.".to_string(),
         },
         Recommendation {
             title: "Synchronized 8111 recording",
@@ -284,7 +290,7 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
     if unnamed > 0 {
         recommendations.push(Recommendation {
             title: "Decode the weapon type",
-            detail: format!("{unnamed} of {} tracked weapons have no name. Decoding ECS rocket components would name them and remove the success bias.", totals.weapons_tracked),
+            detail: format!("{unnamed} of {} tracked weapons have no name because their type id has no kill in that replay. Decoding ECS rocket components would name them directly.", totals.weapons_tracked),
         });
     }
     if totals.weapons_by_author > 0 {

@@ -48,7 +48,7 @@
 | `units` | Vehicle, slot and loadout per uid from creation records, resolved at a time |
 | `idfield`, `combat` | Id-field message tables; kill and damage records |
 | `shells` | MPI `0xF0DB` weapon records, accepted only when they consume exactly the declared length |
-| `weapons` | Joins creation, flight records, aircraft state and kills into `WeaponEvent`s. Launcher, name and outcome are DERIVED with explicit status |
+| `weapons` | Joins creation, flight records, aircraft state and kills into `WeaponEvent`s. Launcher, name and outcome are DERIVED with explicit status. Names come from kill records or a per-replay type id, with a built-in hold-out test |
 | `lab` | One extraction pass over a replay |
 | `measure` | Pure measurement functions: statistics, maneuver figures, transitions, gaps, robust z-score |
 | `research` | Per-replay `ResearchData`: tracks, identity, anomalies, missing data, findings, questions, coverage |

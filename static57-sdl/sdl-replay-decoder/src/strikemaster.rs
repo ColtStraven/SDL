@@ -106,6 +106,8 @@ pub struct Proposal {
     /// Always `proposed_for_review`: nothing is applied automatically.
     pub status: &'static str,
     pub weapon_name: String,
+    pub weapon_name_source: &'static str,
+    pub weapon_name_evidence: Evidence,
     pub s57_weapon_id: Option<String>,
     pub vehicle: Option<String>,
     pub s57_aircraft_id: Option<String>,
@@ -113,6 +115,7 @@ pub struct Proposal {
     pub launch_altitude_m: Option<f64>,
     pub launch_aircraft_speed_mps: Option<f64>,
     pub target_vehicle: Option<String>,
+    pub samples: u64,
     pub time_of_flight_s: Option<f64>,
     /// Sample spacing near the end of flight bounds the time of flight.
     pub time_of_flight_uncertainty_s: Option<f64>,
@@ -133,9 +136,9 @@ pub struct Proposal {
     pub caution: &'static str,
 }
 
-pub const PROPOSAL_CAUTION: &str = "Single observed shot from a kill-linked weapon. Selected for success, not a launch envelope.";
+pub const PROPOSAL_CAUTION: &str = "Single observed shot, not a launch envelope. An unknown outcome is not proof of a miss.";
 
-/// Proposals for named weapons (the only ones with an established identity).
+/// One proposal per named weapon. Unnamed weapons have no database identity.
 pub fn proposals(sha256: &str, file: &str, weapons: &[WeaponEvent], db: Option<&Databases>) -> Vec<Proposal> {
     weapons
         .iter()
@@ -149,6 +152,8 @@ pub fn proposals(sha256: &str, file: &str, weapons: &[WeaponEvent], db: Option<&
                 proposal_id: format!("{}-{}", &sha256[..8], w.weapon_id),
                 status: "proposed_for_review",
                 weapon_name: name,
+                weapon_name_source: w.weapon_name_source,
+                weapon_name_evidence: w.weapon_name_evidence,
                 database_match_evidence: if s57_weapon_id.is_some() { Evidence::Experimental } else { Evidence::Unknown },
                 s57_weapon_id,
                 vehicle,
@@ -156,6 +161,7 @@ pub fn proposals(sha256: &str, file: &str, weapons: &[WeaponEvent], db: Option<&
                 launch_altitude_m: t.launch_altitude_m.map(round3),
                 launch_aircraft_speed_mps: w.launcher.aircraft_speed_mps.map(round3),
                 target_vehicle: w.outcome.victim_vehicle.clone(),
+                samples: t.samples,
                 time_of_flight_s: t.time_of_flight_s.map(round3),
                 time_of_flight_uncertainty_s: t.max_sample_interval_s.map(round3),
                 ground_range_m: round3(t.ground_range_m),
