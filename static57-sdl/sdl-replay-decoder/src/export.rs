@@ -54,6 +54,30 @@ pub fn export_packets(input: &Path, file: &[u8], out_dir: &Path, opts: Options) 
     Ok(PacketExport { manifest, manifest_path, packets_path })
 }
 
+/// Write one replay's research directory: `research-report.md`,
+/// `research-data.json` and `weapon_tracks.jsonl`. Returns the dataset.
+pub fn export_research(input: &Path, file: &[u8], out_dir: &Path, db: Option<&crate::strikemaster::Databases>) -> io::Result<crate::research::ResearchData> {
+    fs::create_dir_all(out_dir)?;
+    let name = input.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let run = crate::research::run(&name, file, db)?;
+    let input_canon = fs::canonicalize(input).ok();
+    for f in ["research-report.md", "research-data.json", "weapon_tracks.jsonl"] {
+        let p = out_dir.join(f);
+        if p.exists() && fs::canonicalize(&p).ok() == input_canon {
+            return Err(io::Error::other("refusing to overwrite the input replay"));
+        }
+    }
+    write_json(&out_dir.join("research-data.json"), &run.data)?;
+    fs::write(out_dir.join("research-report.md"), crate::report::render(&run.data))?;
+    let mut w = BufWriter::new(File::create(out_dir.join("weapon_tracks.jsonl"))?);
+    for (id, samples) in &run.weapon_samples {
+        serde_json::to_writer(&mut w, &serde_json::json!({ "weapon_id": id, "samples": samples }))?;
+        w.write_all(b"\n")?;
+    }
+    w.flush()?;
+    Ok(run.data)
+}
+
 pub struct FlightExport {
     pub manifest: Manifest,
     pub report: crate::tracks::FlightReport,

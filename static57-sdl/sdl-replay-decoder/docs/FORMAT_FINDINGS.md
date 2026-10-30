@@ -1,6 +1,6 @@
 # S57-003 SDL — `.wrpl` Format Findings
 
-Decoder: `sdl-replay-decoder` 0.2.0. Date: 2026-10-29 (Milestones 1–3).
+Decoder: `sdl-replay-decoder` 0.2.0. Date: 2026-10-29 (Milestones 1–3). Milestone 4 findings, on a corpus of 42 replays, are in [FINDINGS_M4_WEAPONS_IDENTITY.md](FINDINGS_M4_WEAPONS_IDENTITY.md); where they differ, that document supersedes this one.
 Evidence base: 27 genuine client replays recorded by the Static 57 owner, 2026-10-22 to 2026-10-25 (see [COMPATIBILITY.md](COMPATIBILITY.md)).
 
 Classifications: **VERIFIED** (documented structure with a reproducible cross-check on Static 57 replays), **REPORTED** (external documentation only), **DERIVED**, **EXPERIMENTAL**, **UNKNOWN**.
@@ -101,7 +101,7 @@ Entry kinds across the corpus: 2,468,023 state records, 1,050,657 withheld (both
 | Field | Location / type | Quantisation | Meaning, units | Class | Validation |
 |---|---|---|---|---|---|
 | Position | `state` bits after the weapon list, 3 × `f32le` (unaligned) | IEEE float | World X, Y, Z in metres; **+Y up** | VERIFIED | (1) The recording author's Y equals the cockpit altimeter. (2) Displacement between 250 ms samples matches decoded velocity × dt: author median residual 0.000–0.081 m. (3) Finite-difference speeds have median 165 m/s and p99.9 445 m/s (plausible aircraft speeds) |
-| Altitude | Position Y | — | Metres above mean sea level | VERIFIED | Matches the cockpit altimeter (0xD04A id 40, 42 or 43, in m or ft) in 19 replays. Median abs error 0.000–0.65 m; p99 ≤ 2.7 m |
+| Altitude | Position Y | — | Metres above mean sea level | VERIFIED | Matches the cockpit altimeter (0xD04A id 40, 42 or 43, in m or ft) in 19 replays. Median abs error at most 0.042 m per replay after applying the game's 3.28 ft/m (Milestone 4; the original 0.3048 comparison gave up to 0.65 m) |
 | Heading | `euler` bits 19–28 magnitude, bit 31 sign | 10 bits over [0°, 180°], 0.176° step | Yaw about +Y, right-handed, zero along +X; the nose points along `(cos h, 0, -sin h)` | VERIFIED | Median abs(heading − velocity track angle) is 0.17–5.4° per replay. This includes sideslip and remote-aircraft lag |
 | Pitch | `euler` bits 10–18 magnitude, bit 30 sign | 9 bits over [0°, 90°], 0.176° step | Nose-up positive | VERIFIED | Equals −(cockpit id 53): median abs error 0.020–0.075° in 19 replays (p99 ≤ 2.0°). Pitch − flight-path angle has median −0.2 to +1.6° (angle of attack) |
 | Bank | `euler` bits 0–9 magnitude, bit 29 sign | 10 bits over [0°, 180°], 0.176° step | Same sign as cockpit roll (id 52) | VERIFIED | Median abs error 0.002–0.235° in 19 replays (p99 ≤ 7.6° during fast rolls) |
@@ -142,7 +142,7 @@ Every state record yields position, altitude, orientation and velocity. Withheld
 
 1. **Horizontal frame:** X and Z are metres in the world frame, but their relation to map north and to map grid coordinates is unknown. It needs `/map_info.json` plus `/map_obj.json` from 8111 (see [TELEMETRY_8111.md](TELEMETRY_8111.md)).
 2. **Remote aircraft** are network-replicated states in a client replay. Their kinematic self-consistency is lower (median displacement residual 0.06–40 m per replay), and no independent instrument exists for them.
-3. **Identity:** the uid-to-vehicle, player and life relationship is unresolved. Track ids are provisional.
+3. **Identity:** resolved in part by Milestone 4 (vehicle per track with a confidence class). Track ids remain provisional, and player and life links are unresolved.
 4. **Not decoded:** `unk_u32`, `unk_bit`, bit 18 of the velocity word, the per-entry hidden flags, gun-entry bits, weapon list values, the seven control bytes (reported: stick, flaps, rudder, throttle), engine fields, sensors, countermeasures, targets, the seeker block, and the 13/24/35 bytes after the trailer (multiples of 11 plus 2). Controls and engine states are exported raw.
 5. **No server replay** has been tested.
 6. **Wind:** decoded velocity is world-frame. Treating it as airspeed assumes no wind; the ISA/IAS check is consistent with that within about 1–3 m/s.
@@ -155,7 +155,7 @@ Every state record yields position, altitude, orientation and velocity. Withheld
 | Body = varint bit length, align, `u16 count`, `count × (u16 id, f32 value)` | VERIFIED | 99,587 messages in 20 replays decode with 0 failures; the declared length always fits |
 | One message per author sync, offset from it by a median 36 ms (p99 124 ms) | VERIFIED | Pairing statistics |
 | id 0 is IAS (m/s); 39 vertical speed (m/s); 52 roll (°); 53 pitch (°, sign opposite to the flight model) | REPORTED, then VERIFIED | Agreement figures in §5.3 |
-| Altimeter: id 40 is metres on some aircraft and feet on others; on some feet altimeters id 40 is the value **modulo 10,000 ft** and id 42 is the full altitude | VERIFIED (new finding) | Replay 2026.10.24 08.23.02: id 40 = id 42 mod 10,000 ft. SDL chooses the (id, unit) pair per replay |
+| Altimeter: id 40 is metres on some aircraft and feet (3.28 ft/m, see the Milestone 4 findings) on others; on some feet altimeters id 40 is the value **modulo 10,000 ft** and id 42 is the full altitude | VERIFIED (new finding) | Replay 2026.10.24 08.23.02: id 40 = id 42 mod 10,000 ft. SDL chooses the (id, unit) pair per replay |
 | Replay 2026.10.23 17.07.27 has no ids 39/40/42/43/52/53 | Observation | Its aircraft's instrument set differs; no cockpit validation is possible |
 
 Comparisons use the author state linearly interpolated (DERIVED) between the two bracketing 250 ms sync records at the cockpit timestamp.

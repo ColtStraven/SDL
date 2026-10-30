@@ -2,6 +2,8 @@ use clap::{Parser, Subcommand};
 use sdl_replay_decoder::diagnostics::Severity;
 use sdl_replay_decoder::export;
 use sdl_replay_decoder::manifest::{self, Depth, Manifest, Options};
+use sdl_replay_decoder::strikemaster::Databases;
+use sdl_replay_decoder::{report, survey};
 use sdl_replay_decoder::tracks::{Comparison, Dist, FlightReport, TrackConfig};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -55,6 +57,27 @@ enum Command {
         /// Write all flight reports (without per-track summaries) as JSON.
         #[arg(long)]
         out: Option<PathBuf>,
+    },
+    /// Generate the research report and dataset for one replay.
+    Research {
+        replay: PathBuf,
+        /// Output directory [default: ./research/<replay name>].
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Folder holding the Strike Master databases (read-only).
+        #[arg(long)]
+        db_dir: Option<PathBuf>,
+    },
+    /// Generate research reports for many replays plus a cross-replay summary.
+    ResearchSurvey {
+        /// Replay files or directories containing .wrpl files.
+        paths: Vec<PathBuf>,
+        /// Output directory [default: ./research].
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Folder holding the Strike Master databases (read-only).
+        #[arg(long)]
+        db_dir: Option<PathBuf>,
     },
     /// Inspect and frame many replays; print a compatibility table.
     Survey {
@@ -217,6 +240,10 @@ fn print_flight(name: &str, r: &FlightReport) {
     }
 }
 
+fn load_db(dir: Option<PathBuf>) -> Result<Option<Databases>, String> {
+    dir.map(|d| Databases::load(&d).map_err(|e| format!("cannot read databases in {}: {e}", d.display()))).transpose()
+}
+
 fn collect(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for p in paths {
@@ -303,6 +330,36 @@ fn run() -> Result<ExitCode, String> {
                 eprintln!("wrote {}", o.display());
             }
             Ok(worst)
+        }
+        Command::Research { replay, out, db_dir } => {
+            let db = load_db(db_dir)?;
+            let file = read(&replay)?;
+            let dir = out.unwrap_or_else(|| PathBuf::from("research").join(export::sanitized_stem(&replay)));
+            let d = export::export_research(&replay, &file, &dir, db.as_ref()).map_err(|e| e.to_string())?;
+            println!("{}: {} tracks, {} weapons, {} findings", d.replay.file_name, d.tracks.len(), d.weapons.stats.weapons_tracked, d.findings.len());
+            println!("wrote {}", dir.join("research-report.md").display());
+            println!("wrote {}", dir.join("research-data.json").display());
+            println!("wrote {}", dir.join("weapon_tracks.jsonl").display());
+            Ok(if d.replay.status == "ok" { ExitCode::SUCCESS } else { ExitCode::from(1) })
+        }
+        Command::ResearchSurvey { paths, out, db_dir } => {
+            let db = load_db(db_dir)?;
+            let root = out.unwrap_or_else(|| PathBuf::from("research"));
+            std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+            let (mut all, mut dirs) = (Vec::new(), Vec::new());
+            for f in collect(&paths) {
+                let file = read(&f)?;
+                let stem = export::sanitized_stem(&f);
+                let d = export::export_research(&f, &file, &root.join(&stem), db.as_ref()).map_err(|e| e.to_string())?;
+                println!("{}: {} tracks, {} weapons", d.replay.file_name, d.tracks.len(), d.weapons.stats.weapons_tracked);
+                all.push(d);
+                dirs.push(stem);
+            }
+            let c = survey::analyze(&all, &dirs);
+            export::write_json(&root.join("research-summary.json"), &c).map_err(|e| e.to_string())?;
+            std::fs::write(root.join("research-summary.md"), report::render_summary(&c)).map_err(|e| e.to_string())?;
+            println!("wrote {}", root.join("research-summary.md").display());
+            Ok(ExitCode::SUCCESS)
         }
         Command::Survey { paths, out } => {
             let files = collect(&paths);

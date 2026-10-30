@@ -23,6 +23,9 @@ pub mod id {
     /// carries the full altitude (observed by SDL).
     pub const ALTITUDE: u16 = 40;
     pub const ALTITUDE_CANDIDATES: [u16; 3] = [40, 42, 43];
+    /// Feet altimeters use 3.28 ft per metre: decoded altitude fits
+    /// `0.304877 * ft` with a 0.03 m intercept, not the exact 0.3048.
+    pub const METRES_PER_GAME_FOOT: f64 = 1.0 / 3.28;
     /// Roll angle, degrees.
     pub const ROLL: u16 = 52;
     /// Pitch angle, degrees, opposite sign to the flight-model pitch.

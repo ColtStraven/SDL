@@ -1,6 +1,6 @@
 # S57-003 SDL — Native Replay Decoder Architecture
 
-## Pipeline (implemented, Milestones 1–3)
+## Pipeline (implemented, Milestones 1–4)
 
 ```
 .wrpl bytes (read-only)
@@ -19,6 +19,14 @@
                                                       -> tracks (segments, author, validation)
   type 4 0xD04A  -> cockpit (validation reference only) -----^
                                                       -> export: flight_tracks.jsonl, flight_summary.json
+
+  Milestone 4, one read of the replay (lab.rs):
+  type 6 ECS creation -> ecs -> units (identity), weapons (launch)
+  type 4 0xF0DB       -> shells -> weapons (trajectory)
+  type 4 0xF058/56/157 -> idfield -> combat (battle log) -> weapons (kill link, name)
+  all of the above -> measure -> research (ResearchData) -> report (Markdown)
+                                                         -> strikemaster (proposals)
+  many ResearchData -> survey (CrossReplay) -> report (research-summary.md)
 ```
 
 | Module | Responsibility |
@@ -36,7 +44,18 @@
 | `flight` | Physical interpretation, each field independently validated: packed orientation (heading/pitch/bank), packed velocity (speed + unit direction), conventions, quantization constants, ISA helper |
 | `cockpit` | Minimal MPI `0xD04A` decoder, used only as an independent reference |
 | `tracks` | `Reconstructor`: provisional track segments per uid (split on gap or unexplained jump, never merged), author identification via the sync trailer, sample flags, kinematic and cockpit validation statistics, bit-coverage accounting |
-| `export` | JSON writers (`export_packets`, `analyze_flight`, `export_flight`). Refuse to overwrite the input |
+| `ecs` | ECS creation framing: entity id, template name, raw component block. Component values are not decoded |
+| `units` | Vehicle, slot and loadout per uid from creation records, resolved at a time |
+| `idfield`, `combat` | Id-field message tables; kill and damage records |
+| `shells` | MPI `0xF0DB` weapon records, accepted only when they consume exactly the declared length |
+| `weapons` | Joins creation, flight records, aircraft state and kills into `WeaponEvent`s. Launcher, name and outcome are DERIVED with explicit status |
+| `lab` | One extraction pass over a replay |
+| `measure` | Pure measurement functions: statistics, maneuver figures, transitions, gaps, robust z-score |
+| `research` | Per-replay `ResearchData`: tracks, identity, anomalies, missing data, findings, questions, coverage |
+| `strikemaster` | Read-only database link and proposals for review |
+| `survey` | Cross-replay analysis |
+| `report` | Markdown from `ResearchData` and `CrossReplay` only, so reports cannot disagree with the JSON |
+| `export` | JSON writers (`export_packets`, `analyze_flight`, `export_flight`, `export_research`). Refuse to overwrite the input |
 
 ### Design rules
 
@@ -77,10 +96,8 @@ Each future module consumes `PacketRecord` plus its payload bytes, never the com
 
 | Module | Consumes | Produces |
 |---|---|---|
-| `entities` (Battlefield Dynamics) | ECS (6), MPI (4), flight tracks | Persistent entity identity: uid → vehicle/player per life, spawns, uid reuse, AI, ground, naval and SAM units |
-| `weapons` (Weapons Dynamics) | MPI/ECS weapon messages, entity tracks | Launch, trajectory and outcome records with match confidence |
+| `ground` (Battlefield Dynamics) | MPI `0xF073`, ECS components | Ground, naval and SAM unit positions and engagement behavior |
 | `sensors` (Sensor Dynamics) | Type-2 sensor/target/seeker blocks (already delimited by `aircraft`), ECS | Radar and seeker state |
 | `blk` | Settings and footer sections | Decoded DataBlock trees |
 | `segments` | Multiple server `.wrpl` parts | Session assembly with continuity checks |
 | `telemetry` (Experimental Telemetry) | SDL tracks plus 8111/HOTAS/MARK/TEST WPN logs | Time alignment with recorded uncertainty (plan: `TELEMETRY_8111.md`) |
-| `analysis` / `visualization` | The above | Kept out of the decoder crate |

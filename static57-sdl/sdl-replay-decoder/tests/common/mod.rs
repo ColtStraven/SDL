@@ -8,8 +8,11 @@ use sdl_replay_decoder::packets::encode_size_prefix;
 use std::io::Write;
 
 pub mod bitwriter;
+pub mod weaponfx;
 #[allow(unused_imports)]
 pub use bitwriter::*;
+#[allow(unused_imports)]
+pub use weaponfx::*;
 
 pub const SIG: [u8; 4] = [0xE5, 0xAC, 0x00, 0x10];
 pub const MAGIC_18C1C: u32 = 0x0001_8C1C;

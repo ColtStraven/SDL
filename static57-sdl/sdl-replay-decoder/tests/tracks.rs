@@ -159,7 +159,7 @@ fn feet_altimeter_on_full_altitude_id_is_selected() {
         let s = straight(0.0, 3884.0, 0.0, 150.0, k as f64 * 0.25);
         let tr = s.pos;
         frames.push((k * 250, sync(&[(1, s)], tr)));
-        let ft = 3884.0 / 0.3048;
+        let ft = 3884.0 * 3.28;
         let p = cockpit_payload(&[(40, ft % 10_000.0), (42, ft)]);
         cockpits.push(cockpit::decode(k * 250 + 20, &p).unwrap());
     }

@@ -57,6 +57,46 @@ fn genuine_replays_frame_completely() {
 
 #[test]
 #[ignore = "needs genuine .wrpl files (SDL_REPLAY_DIR)"]
+fn genuine_research_reports() {
+    use sdl_replay_decoder::{report, research, survey};
+    let dir = replay_dir().expect("no replay directory: set SDL_REPLAY_DIR");
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("wrpl")))
+        .collect();
+    files.sort();
+    let mut all = Vec::new();
+    for path in &files {
+        let bytes = std::fs::read(path).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let d = research::run(&name, &bytes, None).unwrap().data;
+        let w = &d.weapons.stats;
+        assert_eq!(w.shells_failed, 0, "{name}");
+        assert_eq!(w.shells_exact, w.shells_messages, "{name}: every ShellsData message must consume its declared length");
+        // Unit identity must stay consistent with the battle log.
+        let i = &d.identity;
+        let (good, bad) = (i.kill_records_vehicle_match + i.damage_records_vehicle_match, i.kill_records_vehicle_mismatch + i.damage_records_vehicle_mismatch);
+        assert!(bad <= good.max(20), "{name}: identity {good} good, {bad} bad");
+        let md = report::render(&d);
+        assert!(md.contains(&d.replay.sha256), "{name}");
+        for f in &d.findings {
+            assert!(md.contains(&f.statement), "{name}: {}", f.id);
+        }
+        assert!(md.lines().count() < 260, "{name}: report too long ({} lines)", md.lines().count());
+        assert!(!md.contains("NaN") && !md.contains("inf "), "{name}");
+        all.push(d);
+    }
+    let dirs: Vec<String> = all.iter().map(|d| d.replay.file_name.clone()).collect();
+    let s = survey::analyze(&all, &dirs);
+    assert_eq!(s.totals.replays as usize, files.len());
+    assert_eq!(s.totals.replays_ok, s.totals.replays);
+    assert!(s.totals.weapons_tracked > 0);
+    eprintln!("{} replays: {} weapons, {} named, {} by author", files.len(), s.totals.weapons_tracked, s.totals.weapons_named, s.totals.weapons_by_author);
+}
+
+#[test]
+#[ignore = "needs genuine .wrpl files (SDL_REPLAY_DIR)"]
 fn genuine_flight_tracks_validate() {
     use sdl_replay_decoder::export::analyze_flight;
     use sdl_replay_decoder::tracks::TrackConfig;

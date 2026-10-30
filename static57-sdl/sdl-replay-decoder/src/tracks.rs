@@ -648,7 +648,7 @@ impl Reconstructor {
         // (id, unit) pair that agrees with decoded Y most often.
         let mut best: Option<(usize, &'static str, f64, usize, usize)> = None;
         for (k, _) in cockpit::id::ALTITUDE_CANDIDATES.iter().enumerate() {
-            for (unit, scale) in [("m", 1.0), ("ft", 0.3048)] {
+            for (unit, scale) in [("m", 1.0), ("ft", cockpit::id::METRES_PER_GAME_FOOT)] {
                 let present = alt.iter().filter(|(_, h)| h[k].is_some()).count();
                 let hits = alt.iter().filter(|(y, h)| h[k].is_some_and(|h| (y - h * scale).abs() < 2.0)).count();
                 if present > 0 && best.is_none_or(|b| hits > b.3) {

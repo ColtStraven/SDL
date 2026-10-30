@@ -7,7 +7,7 @@ Every genuine replay used for compatibility testing. Files were **read only**, n
 - Format magic: `0x00018C1C` (all files)
 - Codec: Zstandard, one frame per file
 - Game version: the header's `game_version` field, interpreted EXPERIMENTALLY as `major.minor.patch.build`
-- Decoder: `sdl-replay-decoder` 0.1.0 (Milestones 1–2) and 0.2.0 (Milestone 3), 2026-10-29
+- Decoder: `sdl-replay-decoder` 0.1.0 (Milestones 1–2), 0.2.0 (Milestone 3), 0.3.0 (Milestone 4)
 - Reproduce: `SDL_REPLAY_DIR=<folder> cargo test --release -- --ignored`, or `sdl-replay-decoder survey <folder>`
 
 Result: **27 of 27 decode with status `ok`.** In every file, every compressed byte is consumed, every decompressed byte is framed into packets, there are 0 unknown packet types and 0 malformed records, the clock is monotonic, and the end marker is the final record.
@@ -94,3 +94,76 @@ Notes:
 - 2026.10.23 10.09.23 contains no aircraft state records (62 sync packets, all entries no-data).
 - Seven replays have no `0xD04A` messages, and 2026.10.23 17.07.27 has a cockpit set without altitude or attitude ids, so cockpit validation covers 19 replays.
 - Replays where the author is parked show constant, exactly matching values. These are not evidence of in-flight accuracy.
+
+## Milestone 4 — all 42 replays (decoder 0.3.0, 2026-10-30)
+
+Reproduce with `sdl-replay-decoder research-survey <folder>`. **42 of 42 decode with status `ok`. All 93,810 `ShellsData` messages consume exactly their declared length, and all 32,121 ECS creation packets frame with 0 failures.**
+
+Additional replays recorded 2026-10-29 (the "Packets" column here counts aircraft sync packets):
+
+| File | Bytes | Game version | Codec | Sync packets | Span (s) | Acct | SHA-256 |
+|---|---|---|---|---|---|---|---|
+| #2026.10.29 17.46.28.wrpl | 6590517 | 2.59.0.92 | Zstd | 4300 | 1077.391 | true | a5d4a3907610b45f808eb94e9079e8c8bccbd7f7529c14b890174d605fc8d2f2 |
+| #2026.10.29 17.52.20.wrpl | 2437491 | 2.59.0.92 | Zstd | 1211 | 304.847 | true | 8b695ba6905746120111e0b6819d9b615e7139277919749795b89f0fb3e4ecd2 |
+| #2026.10.29 17.59.38.wrpl | 3035635 | 2.59.0.92 | Zstd | 1680 | 421.627 | true | a438c0479bbd7925e1e4c91722bfea479d6472e77b5c9e3b836913d935361305 |
+| #2026.10.29 18.12.52.wrpl | 966465 | 2.59.0.92 | Zstd | 669 | 168.149 | true | 9adb24ea50b6aba7144bb2629241ef1e346a7c19231ee89af4978aa326fc0a8a |
+| #2026.10.29 19.16.29.wrpl | 23887598 | 2.59.0.92 | Zstd | 14441 | 3613.157 | true | 3e95ae58edaa5bd054f7eb036a5b8f5e73f06018949cbc5ae650f5cb6ae39d05 |
+| #2026.10.29 19.34.21.wrpl | 3556970 | 2.59.0.92 | Zstd | 2313 | 580.629 | true | c4fbc3a8359a0606a77d66de734e67f89190de5afb35b453f2b16be5a213e93c |
+| #2026.10.29 19.49.34.wrpl | 4692740 | 2.59.0.92 | Zstd | 3233 | 810.367 | true | add305afcd0016a70c516e98cc616d8a615a5ef5f8d0f9314df7789e8664590d |
+| #2026.10.29 20.06.24.wrpl | 5482377 | 2.59.0.92 | Zstd | 3881 | 973.171 | true | 538764b8a2ee7e13c0b95f0402251b15689c5b0bedef21dd64fbab50207d0e99 |
+| #2026.10.29 20.14.12.wrpl | 2958554 | 2.59.0.92 | Zstd | 1208 | 304.573 | true | 151db012bb4b630aaf113ddebf69578686c83cc67c86be6dd7f5e991c8129f31 |
+| #2026.10.29 20.21.00.wrpl | 2590032 | 2.59.0.92 | Zstd | 1499 | 376.862 | true | 5578efeaf6d24385059d7ba10a570d4e488d6e164712c6f12eaf1445bc814886 |
+| #2026.10.29 20.23.08.wrpl | 1304494 | 2.59.0.92 | Zstd | 389 | 100.298 | true | a2b30be4526cff362229a28e1f3fbf73ecf0f8025c1813958417198c468e93c9 |
+| #2026.10.29 20.34.30.wrpl | 2360602 | 2.59.0.92 | Zstd | 1221 | 307.591 | true | 225aa27fd51ddf68131d0bb2bb13cabbd179d27197b7af8de3b0346a6332f69b |
+| #2026.10.29 20.49.14.wrpl | 17052284 | 2.59.0.92 | Zstd | 2787 | 702.047 | true | f34ef4d3558e699d8bf04c4cc463df91f63a417595f004463de17e2143060da2 |
+| #2026.10.29 21.35.10.wrpl | 268389 | 2.59.0.92 | Zstd | 58 | 16.479 | true | e019e92ffc9ddba2f2478c27e2efeb6fce685c540e9214defe35dac8a5322acf |
+| #2026.10.29 21.51.38.wrpl | 1908325 | 2.59.0.92 | Zstd | 1113 | 280.586 | true | 6d7e1dd82374520e8a519c8ec3c567c0e6d321179885226b0f10559274f7f325 |
+
+Extraction by replay:
+
+| Replay | Game version | Author vehicle | Tracks | ShellsData msgs | Weapons | By author | Named | Kills |
+|---|---|---|---|---|---|---|---|---|
+| 2026.10.22_16.18.52 | 2.59.0.80 | a_10a_early | 69 | 402 | 39 | 0 | 7 | 28 |
+| 2026.10.23_07.50.42 | 2.59.0.83 | none | 16 | 47 | 18 | 0 | 0 | 3 |
+| 2026.10.23_10.09.23 | 2.59.0.86 | none | 0 | 0 | 0 | 0 | 0 | 0 |
+| 2026.10.23_11.20.27 | 2.59.0.86 | saab_a32a_red_adam | 147 | 1606 | 122 | 0 | 8 | 66 |
+| 2026.10.23_11.36.11 | 2.59.0.86 | mig-17_f5 | 91 | 843 | 29 | 2 | 4 | 26 |
+| 2026.10.23_11.39.53 | 2.59.0.86 | none | 26 | 26 | 9 | 0 | 1 | 2 |
+| 2026.10.23_15.24.22 | 2.59.0.86 | su_22m4_de_wtd61 | 67 | 536 | 97 | 2 | 3 | 21 |
+| 2026.10.23_15.34.36 | 2.59.0.86 | su_22m4_de_wtd61 | 75 | 484 | 44 | 0 | 3 | 19 |
+| 2026.10.23_15.37.33 | 2.59.0.86 | ffa_p16 | 26 | 31 | 30 | 0 | 0 | 0 |
+| 2026.10.23_15.46.48 | 2.59.0.86 | meteor_nfmk13 | 31 | 4 | 1 | 0 | 0 | 3 |
+| 2026.10.23_15.47.41 | 2.59.0.86 | ariete | 19 | 0 | 0 | 0 | 0 | 0 |
+| 2026.10.23_16.31.10 | 2.59.0.86 | mig-17_f5 | 135 | 1897 | 94 | 6 | 2 | 21 |
+| 2026.10.23_16.37.32 | 2.59.0.86 | none | 30 | 0 | 0 | 0 | 0 | 0 |
+| 2026.10.23_17.07.27 | 2.59.0.86 | j_22m1a | 198 | 2555 | 101 | 8 | 5 | 43 |
+| 2026.10.23_17.09.25 | 2.59.0.86 | none | 9 | 0 | 0 | 0 | 0 | 0 |
+| 2026.10.24_06.51.45 | 2.59.0.86 | jh_7a_prototype | 96 | 3911 | 140 | 11 | 9 | 66 |
+| 2026.10.24_06.56.29 | 2.59.0.86 | none | 21 | 68 | 16 | 0 | 1 | 5 |
+| 2026.10.24_08.23.02 | 2.59.0.86 | harrier_t10 | 240 | 15273 | 289 | 27 | 9 | 74 |
+| 2026.10.24_12.32.14 | 2.59.0.86 | mirage_milan | 253 | 1756 | 75 | 0 | 4 | 48 |
+| 2026.10.24_13.34.27 | 2.59.0.86 | a_10a_early | 42 | 3425 | 38 | 10 | 1 | 27 |
+| 2026.10.24_14.05.54 | 2.59.0.86 | su_22m4_de_wtd61 | 33 | 423 | 11 | 2 | 3 | 10 |
+| 2026.10.24_14.23.19 | 2.59.0.86 | j_7d | 174 | 7896 | 752 | 4 | 33 | 308 |
+| 2026.10.24_14.25.22 | 2.59.0.86 | hawk_209_indonesia | 55 | 639 | 42 | 0 | 2 | 28 |
+| 2026.10.24_15.03.43 | 2.59.0.86 | f_111f_japan_killstreak, hawk_209_indonesia | 342 | 20101 | 2287 | 21 | 87 | 710 |
+| 2026.10.24_15.28.36 | 2.59.0.86 | hawk_209_indonesia | 109 | 1813 | 39 | 6 | 6 | 36 |
+| 2026.10.25_04.37.02 | 2.59.0.86 | ariete | 77 | 0 | 0 | 0 | 0 | 3 |
+| 2026.10.25_06.01.19 | 2.59.0.86 | ariete | 79 | 0 | 0 | 0 | 0 | 4 |
+| 2026.10.29_17.46.28 | 2.59.0.92 | f_16xl | 107 | 3908 | 114 | 7 | 5 | 16 |
+| 2026.10.29_17.52.20 | 2.59.0.92 | saab_ja37di_f21 | 35 | 1537 | 27 | 4 | 4 | 10 |
+| 2026.10.29_17.59.38 | 2.59.0.92 | saab_ja37di_f21 | 42 | 1485 | 62 | 4 | 2 | 11 |
+| 2026.10.29_18.12.52 | 2.59.0.92 | saab_ja37di_f21 | 7 | 0 | 0 | 0 | 0 | 5 |
+| 2026.10.29_19.16.29 | 2.59.0.92 | saab_ja37di_f21 | 288 | 12889 | 343 | 35 | 36 | 120 |
+| 2026.10.29_19.34.21 | 2.59.0.92 | f-4s | 82 | 330 | 4 | 0 | 1 | 6 |
+| 2026.10.29_19.49.34 | 2.59.0.92 | av_8b_na | 109 | 160 | 20 | 0 | 11 | 18 |
+| 2026.10.29_20.06.24 | 2.59.0.92 | av_8b_na, f-4s | 91 | 473 | 48 | 0 | 2 | 19 |
+| 2026.10.29_20.14.12 | 2.59.0.92 | saab_j35a | 76 | 1010 | 49 | 4 | 2 | 11 |
+| 2026.10.29_20.21.00 | 2.59.0.92 | saab_ja37di_f21 | 55 | 582 | 50 | 0 | 3 | 6 |
+| 2026.10.29_20.23.08 | 2.59.0.92 | saab_ja37di_f21 | 45 | 105 | 6 | 0 | 1 | 3 |
+| 2026.10.29_20.34.30 | 2.59.0.92 | f_16xl | 34 | 1064 | 32 | 3 | 1 | 12 |
+| 2026.10.29_20.49.14 | 2.59.0.92 | saab_ja37di_f21 | 137 | 6461 | 782 | 3 | 26 | 253 |
+| 2026.10.29_21.35.10 | 2.59.0.92 | none | 9 | 0 | 0 | 0 | 0 | 0 |
+| 2026.10.29_21.51.38 | 2.59.0.92 | ariete | 46 | 70 | 7 | 0 | 1 | 10 |
+
+Not yet tested: `18c0b` (pre-2.59 zlib), `18c0a` (dev), server replay parts, and builds after 2.59.0.92.
