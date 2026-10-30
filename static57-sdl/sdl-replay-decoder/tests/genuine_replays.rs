@@ -86,6 +86,11 @@ fn genuine_research_reports() {
         }
         assert!(md.lines().count() < 260, "{name}: report too long ({} lines)", md.lines().count());
         assert!(!w.outcome_classes.contains_key("validated_miss"), "{name}");
+        let y = &d.systems;
+        assert!(y.gear_vs_cockpit.agree * 100 >= y.gear_vs_cockpit.n * 99, "{name}: gear {} of {}", y.gear_vs_cockpit.agree, y.gear_vs_cockpit.n);
+        if y.compass.n >= 100 {
+            assert!(y.compass.median_error_deg.unwrap().abs() < 0.2, "{name}: compass {:?}", y.compass.median_error_deg);
+        }
         assert_eq!(w.outcome_classes.values().sum::<u64>(), w.weapons_tracked, "{name}: every weapon has one class");
         // Almost every store creation names a known unit.
         assert!(w.launchers_exact + 2 >= w.weapons_linked_to_creation, "{name}: {} of {}", w.launchers_exact, w.weapons_linked_to_creation);
@@ -155,4 +160,41 @@ fn genuine_flight_tracks_validate() {
         tracks += r.tracks;
     }
     eprintln!("{} replays: {packets} type-2 packets, {samples} samples, {tracks} track segments", files.len());
+}
+
+#[test]
+#[ignore = "needs genuine .wrpl files (SDL_REPLAY_DIR)"]
+fn genuine_flights_realign_from_a_synthetic_capture() {
+    use sdl_replay_decoder::lab::extract;
+    use sdl_replay_decoder::simcapture::{write_capture, SimConfig};
+    use sdl_replay_decoder::sync::synchronize;
+    use sdl_replay_decoder::tracks::TrackConfig;
+    let dir = replay_dir().expect("no replay directory: set SDL_REPLAY_DIR");
+    let mut files: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("wrpl"))).collect();
+    files.sort();
+    let (mut flown, mut with_clock, mut within) = (0, 0, 0);
+    for (i, path) in files.iter().enumerate() {
+        let bytes = std::fs::read(path).unwrap();
+        let x = extract("x", &bytes, Options::default(), TrackConfig::default(), |_| {}).unwrap();
+        // Parked or very short recordings have nothing to align.
+        if x.author.len() < 4 * 300 || x.author.iter().filter(|s| s.speed_mps > 60.0).count() < 4 * 300 {
+            continue;
+        }
+        flown += 1;
+        let tmp = std::env::temp_dir().join(format!("sdl-genuine-sync-{}-{i}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let offset = -777.25;
+        write_capture(&x.author, &SimConfig { offset_s: offset, ..Default::default() }, &tmp).unwrap();
+        let c = sdl_replay_decoder::telemetry::load(&tmp).unwrap();
+        let r = synchronize(&c, &x.author, &[]);
+        let _ = std::fs::remove_dir_all(&tmp);
+        with_clock += (r.method == Some("cockpit_clock")) as u32;
+        if r.offset_s.is_some_and(|o| (o - offset).abs() <= 0.25) {
+            within += 1;
+        }
+        eprintln!("{}: {} {:?} {:?} {:?}", path.display(), r.quality, r.method, r.offset_s, r.limitations);
+    }
+    eprintln!("{flown} flown replays, {with_clock} by clock, {within} within 0.25 s");
+    assert!(flown >= 20, "{flown}");
+    assert!(within * 10 >= flown * 9, "{within} of {flown}");
 }

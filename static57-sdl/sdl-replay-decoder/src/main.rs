@@ -3,7 +3,7 @@ use sdl_replay_decoder::diagnostics::Severity;
 use sdl_replay_decoder::export;
 use sdl_replay_decoder::manifest::{self, Depth, Manifest, Options};
 use sdl_replay_decoder::strikemaster::Databases;
-use sdl_replay_decoder::{report, survey};
+use sdl_replay_decoder::{lab, report, survey, telemetry, validate};
 use sdl_replay_decoder::tracks::{Comparison, Dist, FlightReport, TrackConfig};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -78,6 +78,29 @@ enum Command {
         /// Folder holding the Strike Master databases (read-only).
         #[arg(long)]
         db_dir: Option<PathBuf>,
+    },
+    /// Record localhost:8111 telemetry. Run this on the computer that runs War Thunder.
+    TelemetryRecord {
+        /// Parent folder; each recording gets its own subfolder.
+        #[arg(long, default_value = "telemetry")]
+        out: PathBuf,
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = telemetry::DEFAULT_PORT)]
+        port: u16,
+        /// Stop after this many seconds [default: until you type q].
+        #[arg(long)]
+        duration_s: Option<f64>,
+    },
+    /// Match a capture to its replay, align them, and write a validation report.
+    TelemetryValidate {
+        /// Capture folder written by telemetry-record.
+        capture: PathBuf,
+        /// A replay file, or a folder to search by capture time.
+        replay: PathBuf,
+        /// Output directory [default: ./research/<replay name>].
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Inspect and frame many replays; print a compatibility table.
     Survey {
@@ -263,6 +286,25 @@ fn collect(paths: &[PathBuf]) -> Vec<PathBuf> {
     out
 }
 
+/// The replay whose time span overlaps the capture most. Time only proposes
+/// a candidate: the validator still has to confirm it.
+fn find_replay(cap: &telemetry::Capture, dir: &Path) -> Result<PathBuf, String> {
+    let (c0, c1) = (cap.meta.started_utc_ms as f64 / 1000.0, cap.meta.started_utc_ms as f64 / 1000.0 + cap.meta.duration_s.unwrap_or(0.0));
+    let mut best: Option<(f64, PathBuf)> = None;
+    for f in collect(&[dir.to_path_buf()]) {
+        let name = f.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let m = manifest::analyze(&name, &read(&f)?, Options { depth: Depth::Packets, ..Default::default() }, |_, _| Ok(())).map_err(|e| e.to_string())?;
+        let Some(s) = &m.session else { continue };
+        let r0 = s.start_time_unix.value as f64;
+        let r1 = r0 + m.packets.as_ref().and_then(|p| p.clock.span_ms).unwrap_or(0) as f64 / 1000.0;
+        let overlap = c1.min(r1) - c0.max(r0);
+        if overlap > -300.0 && best.as_ref().is_none_or(|b| overlap > b.0) {
+            best = Some((overlap, f));
+        }
+    }
+    best.map(|b| b.1).ok_or_else(|| format!("no replay in {} overlaps this capture's time", dir.display()))
+}
+
 fn run() -> Result<ExitCode, String> {
     match Cli::parse().command {
         Command::Inspect { replay, out, json, max_output_mib } => {
@@ -360,6 +402,48 @@ fn run() -> Result<ExitCode, String> {
             std::fs::write(root.join("research-summary.md"), report::render_summary(&c)).map_err(|e| e.to_string())?;
             println!("wrote {}", root.join("research-summary.md").display());
             Ok(ExitCode::SUCCESS)
+        }
+        Command::TelemetryRecord { out, host, port, duration_s } => {
+            let dir = out.join(telemetry::utc_stamp(telemetry::utc_now_ms()));
+            let cfg = telemetry::RecordConfig { out_dir: dir.clone(), host, port, duration_s, endpoints: telemetry::default_endpoints() };
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                for line in std::io::stdin().lines().map_while(Result::ok) {
+                    let t = line.trim();
+                    let cmd = if t.eq_ignore_ascii_case("q") { telemetry::Command::Stop } else { telemetry::Command::Mark(t.to_string()) };
+                    if tx.send(cmd).is_err() {
+                        break;
+                    }
+                }
+            });
+            println!("Recording {}:{} to {}", cfg.host, cfg.port, dir.display());
+            println!("Press Enter for a MARK. Type q then Enter to stop. It is safe to start this before the game.");
+            let mut last = 0.0;
+            let meta = telemetry::record(&cfg, rx, |s| {
+                if s.elapsed_s - last >= 5.0 {
+                    last = s.elapsed_s;
+                    println!("{:>7.0} s  flight readings {:>7}  errors {:>6}  marks {}", s.elapsed_s, s.valid_state, s.errors, s.marks);
+                }
+            })
+            .map_err(|e| e.to_string())?;
+            println!("Stopped ({}) after {:.1} s. Files are in {}", meta.stop_reason.as_deref().unwrap_or("-"), meta.duration_s.unwrap_or(0.0), dir.display());
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::TelemetryValidate { capture, replay, out } => {
+            let cap = telemetry::load(&capture).map_err(|e| format!("cannot read capture {}: {e}", capture.display()))?;
+            let path = if replay.is_dir() { find_replay(&cap, &replay)? } else { replay };
+            let file = read(&path)?;
+            let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let x = lab::extract(&name, &file, Options::default(), sdl_replay_decoder::tracks::TrackConfig::default(), |_| {}).map_err(|e| e.to_string())?;
+            let v = validate::validate(&cap, &validate::ReplayView::of(&x, &name));
+            let dir = out.unwrap_or_else(|| PathBuf::from("research").join(export::sanitized_stem(&path)));
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            export::write_json(&dir.join("validation-data.json"), &v).map_err(|e| e.to_string())?;
+            std::fs::write(dir.join("validation-report.md"), report::render_validation(&v)).map_err(|e| e.to_string())?;
+            println!("{}", v.status);
+            println!("alignment {}: offset {:?} s, uncertainty {:?} s, drift {:?} ppm", v.sync.quality, v.sync.offset_s, v.sync.uncertainty_s, v.sync.drift_ppm);
+            println!("wrote {}", dir.join("validation-report.md").display());
+            Ok(if v.independent_validation { ExitCode::SUCCESS } else { ExitCode::from(1) })
         }
         Command::Survey { paths, out } => {
             let files = collect(&paths);

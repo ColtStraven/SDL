@@ -7,7 +7,7 @@ use crate::strikemaster::Proposal;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const SUMMARY_SCHEMA: &str = "static57.sdl.research-summary/0.3";
+pub const SUMMARY_SCHEMA: &str = "static57.sdl.research-summary/0.4";
 /// Robust z-score beyond which a replay is listed as an outlier.
 pub const OUTLIER_Z: f64 = 3.5;
 /// Fewest samples for a shot to enter flight statistics: shorter tracks are
@@ -15,6 +15,91 @@ pub const OUTLIER_Z: f64 = 3.5;
 pub const MIN_SHOT_SAMPLES: u64 = 5;
 /// Fewest comparisons for a replay to enter a consistency range.
 pub const MIN_COMPARISONS: u64 = 200;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VehicleLoadFactor {
+    pub vehicle: String,
+    pub n: u64,
+    pub pearson_r: Option<f64>,
+    pub abs_error_p50_g: Option<f64>,
+}
+
+/// Aircraft systems checks across the corpus.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SystemsCorpus {
+    pub samples: u64,
+    pub gear_n: u64,
+    pub gear_agree: u64,
+    pub throttle_nibble_n: u64,
+    pub throttle_nibble_agree: u64,
+    pub boost_samples: u64,
+    pub boost_worst_p99: Option<f64>,
+    pub compass_replays: u64,
+    pub compass_worst_median_deg: Option<f64>,
+    pub compass_worst_p50_deg: Option<f64>,
+    pub clock_replays: u64,
+    pub clock_rate_min: Option<f64>,
+    pub clock_rate_max: Option<f64>,
+    pub engine_states: BTreeMap<u8, u64>,
+    /// Vehicles where id 482 behaves as a g-meter, r of at least 0.9.
+    pub load_factor: Vec<VehicleLoadFactor>,
+}
+
+fn systems_corpus(data: &[ResearchData]) -> SystemsCorpus {
+    let mut c = SystemsCorpus::default();
+    let worse = |a: Option<f64>, b: f64| Some(a.map_or(b, |x: f64| x.max(b)));
+    let mut lf: BTreeMap<String, Vec<(u64, Option<f64>, Option<f64>)>> = BTreeMap::new();
+    for d in data {
+        let y = &d.systems;
+        c.samples += y.samples;
+        c.gear_n += y.gear_vs_cockpit.n;
+        c.gear_agree += y.gear_vs_cockpit.agree;
+        c.throttle_nibble_n += y.throttle_nibble_agree.n;
+        c.throttle_nibble_agree += y.throttle_nibble_agree.agree;
+        c.boost_samples += y.throttle_boost_samples;
+        if let Some(p) = y.throttle_abs_error.p99 {
+            c.boost_worst_p99 = worse(c.boost_worst_p99, p);
+        }
+        if y.compass.n >= 100 {
+            c.compass_replays += 1;
+            if let Some(m) = y.compass.median_error_deg {
+                c.compass_worst_median_deg = worse(c.compass_worst_median_deg, m.abs());
+            }
+            if let Some(p) = y.compass.abs_error_deg.p50 {
+                c.compass_worst_p50_deg = worse(c.compass_worst_p50_deg, p);
+            }
+        }
+        if let (Some(r), true) = (y.clock.rate, y.clock.span_s >= 300.0) {
+            c.clock_replays += 1;
+            c.clock_rate_min = Some(c.clock_rate_min.map_or(r, |x: f64| x.min(r)));
+            c.clock_rate_max = Some(c.clock_rate_max.map_or(r, |x: f64| x.max(r)));
+        }
+        for (k, v) in &y.engine_states {
+            *c.engine_states.entry(*k).or_default() += v;
+        }
+        for l in &y.load_factor {
+            lf.entry(l.vehicle.clone()).or_default().push((l.n, l.pearson_r, l.abs_error_g.p50));
+        }
+    }
+    for (vehicle, v) in lf {
+        let n: u64 = v.iter().map(|x| x.0).sum();
+        let mean = |f: &dyn Fn(&(u64, Option<f64>, Option<f64>)) -> Option<f64>| {
+            let (mut s, mut w) = (0.0, 0.0);
+            for x in &v {
+                if let Some(y) = f(x) {
+                    s += y * x.0 as f64;
+                    w += x.0 as f64;
+                }
+            }
+            (w > 0.0).then(|| s / w)
+        };
+        let pearson_r = mean(&|x| x.1);
+        if pearson_r.is_some_and(|r| r >= 0.9) {
+            c.load_factor.push(VehicleLoadFactor { vehicle, n, pearson_r, abs_error_p50_g: mean(&|x| x.2) });
+        }
+    }
+    c
+}
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Totals {
@@ -125,6 +210,7 @@ pub struct CrossReplay {
     pub consistency: Vec<Consistency>,
     pub outliers: Vec<Outlier>,
     pub anomaly_totals: BTreeMap<String, u64>,
+    pub systems: SystemsCorpus,
     pub recommendations: Vec<Recommendation>,
 }
 
@@ -305,7 +391,7 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
         },
         Recommendation {
             title: "Flight-control and engine decoding",
-            detail: "Validate the raw control bytes and engine fields against 8111, then add them to flight dynamics reports.".to_string(),
+            detail: "One real capture lets telemetry-validate score every control, engine and cockpit field against 8111. Candidates are listed in docs/FINDINGS_M7_FLIGHT_SYSTEMS.md.".to_string(),
         },
         Recommendation {
             title: "Controlled LAR shots",
@@ -348,6 +434,7 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
         consistency,
         outliers,
         anomaly_totals,
+        systems: systems_corpus(data),
         recommendations,
     }
 }

@@ -2,3 +2,4 @@ target/
 sdl-out/
 *.wrpl
 research/
+telemetry/

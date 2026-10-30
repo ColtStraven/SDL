@@ -1,8 +1,8 @@
 # S57-003 SDL — Controlled 8111 Recording Procedure
 
-Status: **prepared, not executed.** No controlled recording exists yet, and nothing here is a result.
+Status: **prepared, not executed as a controlled flight.** For a single flight, use the shorter [RECORD_ONE_FLIGHT.md](RECORD_ONE_FLIGHT.md). This document adds the weapon sequences and test log.
 
-This procedure records a replay and localhost:8111 telemetry from the same flight, so SDL's replay measurements can be checked against a source captured separately. Field mapping, the horizontal transform, clock alignment and acceptance metrics are in [TELEMETRY_8111.md](TELEMETRY_8111.md).
+This procedure records a replay and localhost:8111 telemetry from the same flight, so SDL's replay measurements can be checked against a source captured separately. Fields, alignment and the map transform are in [TELEMETRY_8111.md](TELEMETRY_8111.md). Run the recorder on the computer that runs War Thunder.
 
 ## 1. What it tests
 
@@ -20,17 +20,13 @@ This procedure records a replay and localhost:8111 telemetry from the same fligh
 
 1. Use a custom battle on the current build, with one known aircraft and a fixed loadout.
 2. Before takeoff, record the test log header (§5).
-3. Start the 8111 logger before spawning:
-   - `/state` and `/indicators` at 10 Hz or faster.
-   - `/map_obj.json` at 2 Hz or faster.
-   - `/map_info.json` once.
-   - Store each raw response unmodified, with the host's monotonic time.
-4. Confirm the logger is writing, then spawn.
+3. Double-click `Record Flight.bat` before spawning. It stores raw responses from `/state`, `/indicators`, `/map_obj.json`, `/map_info.json` and `/hudmsg`.
+4. Confirm the "flight readings" count climbs after spawning.
 5. Save the replay when the flight ends. Never edit the `.wrpl` or the raw log.
 
 ## 3. MARK events
 
-Press MARK at each listed point, and write the session time in the test log. If MARK events prove not to reach the logger or replay, record the time by hand and state that in the log. A MARK helps align clocks and is not a measurement.
+To mark a listed point, press Enter in the recorder window, optionally after typing a note. Marks are optional for Sequences A and B, because SDL aligns time from the cockpit clock and motion. A mark is shown against replay state as a sanity check and is not a measurement. War Thunder has no in-game MARK key that reaches SDL, so a mark needs the recorder window in focus. For Sequence C the test log takes the place of marks if you stay in the game.
 
 ## 4. Sequences
 
@@ -90,8 +86,8 @@ Keep one log per flight, in plain text.
 
 ## 7. Analysis
 
-1. Run `sdl-replay-decoder research <replay> --out research` and keep the decoder version with the results.
-2. Align clocks and compute the metrics in `TELEMETRY_8111.md` §4 and §6.
+1. Run `sdl-replay-decoder telemetry-validate <capture folder> <Replays folder>`, which finds the replay, aligns it and writes the comparison.
+2. Check that association is `confirmed` and alignment is `established` before reading any figure.
 3. For Sequence C, compare each logged shot with SDL's output:
 
 | Item | Compared with | Agreement means |

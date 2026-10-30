@@ -17,7 +17,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io;
 
-pub const RESEARCH_SCHEMA: &str = "static57.sdl.research-data/0.3";
+pub const RESEARCH_SCHEMA: &str = "static57.sdl.research-data/0.4";
 /// Intervals inside a track longer than this count as missing data.
 pub const MISSING_MIN_MS: u32 = 1_000;
 /// Spawn position agreement that supports a uid-to-vehicle link.
@@ -231,6 +231,7 @@ pub struct ResearchData {
     pub combat: CombatSummary,
     pub weapons: WeaponsSection,
     pub strike_master: StrikeMasterSection,
+    pub systems: crate::systems::SystemsReport,
     pub findings: Vec<Finding>,
     pub unresolved_questions: Vec<String>,
 }
@@ -249,8 +250,8 @@ pub fn field_coverage() -> Vec<FieldCoverage> {
         f("aircraft_orientation", "decoded", Verified, "Heading, pitch, bank. Checked against cockpit and flight path."),
         f("aircraft_velocity", "decoded", Verified, "Saturates at 500 m/s (value is then a lower bound)."),
         f("aircraft_identity", "partial", Derived, "Vehicle, slot and loadout from ECS creation, checked against spawn position and battle log. Not every uid resolves."),
-        f("aircraft_controls", "raw_only", Reported, "Seven control bytes exported raw in flight_tracks.jsonl; layout reported, not validated."),
-        f("engine_state", "raw_only", Reported, "State byte exported; meanings reported, not validated. Power and health fields not scaled."),
+        f("aircraft_controls", "partial", Experimental, "14 nibbles in seven bytes. Throttle, gear and roll control have candidates checked against the replay's cockpit message, not yet against 8111."),
+        f("engine_state", "partial", Experimental, "Throttle scale found: raw / 32767 * 1.1. State byte has candidate meanings. RPM not established."),
         f("weapon_trajectory", "decoded", Verified, "MPI 0xF0DB position, velocity, time since launch. All messages consume their declared bit length."),
         f("weapon_launcher", "decoded", Verified, "Creation records name the launcher's entity id. Agrees with kill records in every checkable case."),
         f("weapon_launch", "partial", Derived, "Launch position from ECS creation, launch time from the weapon timer."),
@@ -262,7 +263,8 @@ pub fn field_coverage() -> Vec<FieldCoverage> {
         f("missile_seeker", "partial", Derived, "Radar target estimate and line of sight used to establish targets. Other fields not interpreted; the reported range field was rejected."),
         f("countermeasures", "not_decoded", Unknown, "Records delimited in type 2, values not interpreted."),
         f("ground_units_air_defense", "not_decoded", Unknown, "MPI 0xF073 ground positions not decoded. SAM launches appear only as weapons with no launcher."),
-        f("localhost_8111_fusion", "not_decoded", Unknown, "No synchronized recording processed."),
+        f("localhost_8111_fusion", "not_decoded", Unknown, "Recorder and validator exist. No real capture processed yet."),
+        f("horizontal_frame", "partial", Derived, "Cockpit compass reads heading + 90 on every replay tested, so +X is east and +Z is north. Not yet confirmed against 8111 map data."),
     ]
 }
 
@@ -558,7 +560,7 @@ fn questions(d: &ResearchData) -> Vec<String> {
     if d.cockpit_validation.cockpit_messages == 0 {
         q.push("This replay has no cockpit messages, so no independent instrument check was possible.".to_string());
     }
-    q.push("How do world X/Z relate to map north? Needs a synchronized 8111 recording.".to_string());
+    q.push("Does the 8111 map confirm +X east and +Z north, as the cockpit compass indicates?".to_string());
     q
 }
 
@@ -678,6 +680,7 @@ pub fn run(file_name: &str, file: &[u8], db: Option<&Databases>) -> io::Result<R
         weapons,
         strike_master,
         findings: Vec::new(),
+        systems: crate::systems::analyze(&x.author),
         unresolved_questions: Vec::new(),
     };
     data.findings = findings(&data);

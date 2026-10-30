@@ -113,7 +113,7 @@ pub fn render(d: &ResearchData) -> String {
             }
             let trs: Vec<_> = author.iter().flat_map(|t| t.transitions.iter().map(move |x| (t, x))).collect();
             if !trs.is_empty() {
-                let _ = writeln!(m, "Flight-state transitions (ground flag and engine byte are not fully validated):\n");
+                let _ = writeln!(m, "Flight-state transitions (gear bit and engine byte are not independently validated):\n");
                 for (t, x) in trs.iter().take(12) {
                     let _ = writeln!(m, "- {} t={} ms: {}{} at {} m, {} m/s", t.track_id, x.timestamp_ms, x.kind, x.detail.as_ref().map(|d| format!(" ({d})")).unwrap_or_default(), x.altitude_m, x.speed_mps);
                 }
@@ -220,7 +220,40 @@ pub fn render(d: &ResearchData) -> String {
     let _ = writeln!(m, "| Pitch vs cockpit, deg | {} |", dist(&c.pitch_deg.abs_error, 3));
     let _ = writeln!(m, "| IAS (ISA from TAS) vs cockpit, m/s | {} |\n", dist(&c.ias_isa_mps.abs_error, 3));
 
-    let _ = writeln!(m, "## 7. Anomalies\n");
+    let _ = writeln!(m, "## 7. Aircraft systems\n");
+    let y = &d.systems;
+    if y.samples == 0 {
+        let _ = writeln!(m, "No author samples.\n");
+    } else {
+        let _ = writeln!(m, "Replay fields checked against the replay's own cockpit message. Labels stay candidates until a real 8111 capture agrees.\n");
+        let _ = writeln!(m, "| Check | Result | Class |\n|---|---|---|");
+        let _ = writeln!(m, "| Author samples (with cockpit) | {} ({}) | VERIFIED |", y.samples, y.samples_with_cockpit);
+        let _ = writeln!(m, "| Gear bit vs cockpit gear | {} of {} agree, {} changes | {:?} |", y.gear_vs_cockpit.agree, y.gear_vs_cockpit.n, y.gear_transitions, y.gear_vs_cockpit.evidence);
+        let _ = writeln!(m, "| Throttle from engine field vs cockpit (p50 / p99) | {} over {} samples | DERIVED |", dist(&y.throttle_abs_error, 4), y.throttle_boost_samples);
+        let _ = writeln!(m, "| Throttle nibble vs cockpit | {} of {} agree | {:?} |", y.throttle_nibble_agree.agree, y.throttle_nibble_agree.n, y.throttle_nibble_agree.evidence);
+        let _ = writeln!(m, "| Compass minus (heading + 90), deg (p50 / p99) | {} over {} samples | {:?} |", dist(&y.compass.abs_error_deg, 3), y.compass.n, y.compass.evidence);
+        let _ = writeln!(m, "| Cockpit clock rate per replay second | {} over {:.0} s, residual {} s | {:?} |", y.clock.rate.map_or("unavailable".to_string(), |r| format!("{r:.6}")), y.clock.span_s, dist(&y.clock.residual_abs_s, 3), y.clock.evidence);
+        let states: Vec<String> = y.engine_states.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+        let _ = writeln!(m, "| Engine state byte, samples | {} | EXPERIMENTAL |\n", states.join(", "));
+        if !y.load_factor.is_empty() {
+            let _ = writeln!(m, "Load factor from position against cockpit id 482, on aircraft that carry it:\n");
+            let _ = writeln!(m, "| Vehicle | n | r | Abs err g (p50 / p99) |\n|---|---|---|---|");
+            for l in &y.load_factor {
+                let _ = writeln!(m, "| {} | {} | {} | {} |", l.vehicle, l.n, l.pearson_r.map_or("unavailable".to_string(), |r| format!("{r:.3}")), dist(&l.abs_error_g, 3));
+            }
+            m.push('\n');
+        }
+        if !y.fuel.is_empty() {
+            let _ = writeln!(m, "Fuel gauge candidate (cockpit id 195, unit not established):\n");
+            let _ = writeln!(m, "| Vehicle | Start | End | Duration s | Rate per s |\n|---|---|---|---|---|");
+            for f in y.fuel.iter().take(6) {
+                let _ = writeln!(m, "| {} | {:.1} | {:.1} | {:.0} | {:.3} |", f.vehicle, f.start, f.end, f.duration_s, f.rate_per_s);
+            }
+            m.push('\n');
+        }
+    }
+
+    let _ = writeln!(m, "## 8. Anomalies\n");
     if d.anomalies.is_empty() {
         let _ = writeln!(m, "None flagged.\n");
     } else {
@@ -231,7 +264,7 @@ pub fn render(d: &ResearchData) -> String {
         m.push('\n');
     }
 
-    let _ = writeln!(m, "## 8. Missing data and limitations\n");
+    let _ = writeln!(m, "## 9. Missing data and limitations\n");
     let md = &d.missing_data;
     let _ = writeln!(m, "{} intervals over 1 s inside tracks, {} s in total.\n", md.intervals_total, md.missing_seconds_total);
     for i in md.intervals.iter().take(5) {
@@ -253,10 +286,10 @@ pub fn render(d: &ResearchData) -> String {
     }
     m.push('\n');
 
-    let _ = writeln!(m, "## 9. Strike Master proposals\n");
+    let _ = writeln!(m, "## 10. Strike Master proposals\n");
     let _ = writeln!(m, "{} (databases loaded: {}). {} observed shots in `research-data.json`.\n", d.strike_master.database_note, d.strike_master.databases_loaded, d.strike_master.proposals.len());
 
-    let _ = writeln!(m, "## 10. Unresolved questions\n");
+    let _ = writeln!(m, "## 11. Unresolved questions\n");
     for q in &d.unresolved_questions {
         let _ = writeln!(m, "- {q}");
     }
@@ -392,9 +425,173 @@ pub fn render_summary(c: &CrossReplay) -> String {
     }
     m.push('\n');
 
-    let _ = writeln!(m, "## 8. Research opportunities and recommended experiments\n");
+    let _ = writeln!(m, "## 8. Aircraft systems\n");
+    let y = &c.systems;
+    let _ = writeln!(m, "Replay fields against the replay's own cockpit message. This is not independent validation: no real 8111 capture has been compared.\n");
+    let _ = writeln!(m, "| Check | Result |\n|---|---|");
+    let _ = writeln!(m, "| Author samples | {} |", y.samples);
+    let _ = writeln!(m, "| Gear bit vs cockpit gear | {} of {} agree |", y.gear_agree, y.gear_n);
+    let _ = writeln!(m, "| Throttle nibble vs cockpit | {} of {} agree |", y.throttle_nibble_agree, y.throttle_nibble_n);
+    let _ = writeln!(m, "| Throttle from engine field | {} samples, worst replay p99 error {} |", y.boost_samples, y.boost_worst_p99.map_or("unavailable".to_string(), |x| format!("{x:.4}")));
+    let _ = writeln!(m, "| Compass minus (heading + 90) | {} replays, largest replay median {} deg, worst replay p50 {} deg |", y.compass_replays, y.compass_worst_median_deg.map_or("unavailable".to_string(), |x| format!("{x:.3}")), y.compass_worst_p50_deg.map_or("unavailable".to_string(), |x| format!("{x:.3}")));
+    let _ = writeln!(m, "| Cockpit clock rate, replays of 300 s or more | {} replays, {} to {} |\n", y.clock_replays, y.clock_rate_min.map_or("unavailable".to_string(), |x| format!("{x:.6}")), y.clock_rate_max.map_or("unavailable".to_string(), |x| format!("{x:.6}")));
+    if !y.load_factor.is_empty() {
+        let _ = writeln!(m, "| Vehicle | Samples vs g-meter | r | Abs err g p50 |\n|---|---|---|---|");
+        for l in &y.load_factor {
+            let _ = writeln!(m, "| {} | {} | {} | {} |", l.vehicle, l.n, l.pearson_r.map_or("unavailable".to_string(), |r| format!("{r:.3}")), l.abs_error_p50_g.map_or("unavailable".to_string(), |x| format!("{x:.3}")));
+        }
+        m.push('\n');
+    }
+
+    let _ = writeln!(m, "## 9. Research opportunities and recommended experiments\n");
     for o in &c.recommendations {
         let _ = writeln!(m, "- **{}**: {}", o.title, o.detail);
     }
+    m
+}
+
+fn opt(x: Option<f64>, digits: usize) -> String {
+    x.map_or_else(|| "unavailable".to_string(), |v| format!("{v:.digits$}"))
+}
+
+/// Markdown report of one replay-to-telemetry comparison. Raw telemetry stays
+/// in the capture folder and full figures in `validation-data.json`.
+pub fn render_validation(v: &crate::validate::TelemetryValidation) -> String {
+    let mut m = String::new();
+    let p = &v.provenance;
+    let _ = writeln!(m, "# SDL Telemetry Validation: {}\n", p.replay_file);
+    let _ = writeln!(m, "**Status: {}**\n", v.status);
+    let _ = writeln!(m, "Generated by sdl-replay-decoder {} (schema `{}`). Full data: `validation-data.json`.\n", p.decoder_version, v.schema);
+
+    let _ = writeln!(m, "## 1. Provenance\n");
+    let _ = writeln!(m, "| Item | Value |\n|---|---|");
+    let _ = writeln!(m, "| Replay SHA-256 | `{}` |", p.replay_sha256);
+    let _ = writeln!(m, "| Game version | {} |", p.game_version.as_deref().unwrap_or("unavailable"));
+    let _ = writeln!(m, "| Replay start (header) | {} |", p.replay_start_utc.as_deref().unwrap_or("unavailable"));
+    let _ = writeln!(m, "| Capture | `{}` |", p.capture_dir);
+    let _ = writeln!(m, "| Capture SHA-256 | `{}` |", p.capture_sha256);
+    let _ = writeln!(m, "| Capture start | {} |", p.capture_started_utc);
+    let _ = writeln!(m, "| Recorder | {} on {} |", p.recorder_host, p.recorder_computer.as_deref().unwrap_or("unavailable"));
+    let a = &v.association;
+    let _ = writeln!(m, "| Association | {} (UTC overlap {:?}, vehicle match {:?}) |", a.class, a.utc_overlap, a.vehicle_match);
+    let _ = writeln!(m, "| Replay vehicles | {} |", a.replay_vehicles.join(", "));
+    let _ = writeln!(m, "| Capture vehicles | {} |\n", a.capture_vehicles.join(", "));
+
+    let s = &v.sync;
+    let _ = writeln!(m, "## 2. Time alignment\n");
+    let _ = writeln!(m, "`t_replay = t_capture + offset + drift * (t_capture - {:.1} s)`\n", s.reference_t_s);
+    let _ = writeln!(m, "| Item | Value |\n|---|---|");
+    let _ = writeln!(m, "| Quality | **{}** |", s.quality);
+    let _ = writeln!(m, "| Method | {} |", s.method.unwrap_or("none"));
+    let _ = writeln!(m, "| Offset | {} s |", opt(s.offset_s, 3));
+    let _ = writeln!(m, "| Uncertainty | {} s |", opt(s.uncertainty_s, 3));
+    let _ = writeln!(m, "| Drift | {} ppm (smallest measurable here {} ppm) |", opt(s.drift_ppm, 1), opt(s.drift_resolution_ppm, 1));
+    let _ = writeln!(m, "| Discontinuity | {} |", s.discontinuity);
+    let _ = writeln!(m, "| Host UTC vs monotonic | {} ppm |\n", opt(v.utc_vs_monotonic_ppm, 1));
+    let _ = writeln!(m, "| Method | Status | Offset s | Uncertainty s | n | Note |\n|---|---|---|---|---|---|");
+    for r in &s.methods {
+        let _ = writeln!(m, "| {} | {} | {} | {} | {} | {} |", r.method, r.status, opt(r.offset_s, 3), opt(r.uncertainty_s, 3), r.n, r.note);
+    }
+    m.push('\n');
+    for l in &s.limitations {
+        let _ = writeln!(m, "- {l}");
+    }
+    if !s.limitations.is_empty() {
+        m.push('\n');
+    }
+
+    let c = &v.coverage;
+    let _ = writeln!(m, "## 3. Measurement coverage\n");
+    let _ = writeln!(m, "| Measure | Value |\n|---|---|");
+    let _ = writeln!(m, "| Capture span | {:.1} s |", c.capture_span_s);
+    let _ = writeln!(m, "| Valid /state readings | {} |", c.valid_state_samples);
+    let _ = writeln!(m, "| Valid /indicators readings | {} |", c.valid_indicator_samples);
+    let _ = writeln!(m, "| Aligned with replay | {} ({} of readings, {:.1} s) |", c.aligned_samples, opt(c.aligned_fraction, 3), c.aligned_span_s);
+    let _ = writeln!(m, "| Telemetry gaps over 1 s | {} (largest {} s) |", c.telemetry_gaps_over_1s, opt(c.largest_telemetry_gap_s, 2));
+    let _ = writeln!(m, "| Replay gaps over 1 s | {} |", c.replay_gaps_over_1s);
+    let _ = writeln!(m, "| Map position jumps | {} |\n", c.map_position_jumps);
+    let _ = writeln!(m, "| Endpoint | Requests | OK | Errors | Interval s (median) | Round trip s (p50 / p99) |\n|---|---|---|---|---|---|");
+    for (n, e) in &v.endpoints {
+        let _ = writeln!(m, "| {n} | {} | {} | {} | {} | {} / {} |", e.requests, e.ok, e.errors, opt(e.median_interval_s, 3), opt(e.rtt_p50_s, 4), opt(e.rtt_p99_s, 4));
+    }
+    m.push('\n');
+
+    let _ = writeln!(m, "## 4. Flight-state comparison\n");
+    if v.comparisons.is_empty() {
+        let _ = writeln!(m, "No comparison was made.\n");
+    } else {
+        let _ = writeln!(m, "Error is replay minus telemetry. Sync effect is the median error the clock uncertainty alone could cause.\n");
+        let _ = writeln!(m, "| Quantity | Replay source | 8111 field | Unit | n | Coverage | Bias | Abs err p50 / p99 | RMSE | r | Sync effect | Class |\n|---|---|---|---|---|---|---|---|---|---|---|---|");
+        for r in &v.comparisons {
+            let _ = writeln!(m, "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {:?} |", r.name, r.replay_source, r.telemetry_source, r.unit, r.n, opt(r.coverage, 3), opt(r.bias, 3), dist(&r.abs_error, 3), opt(r.rmse, 3), opt(r.pearson_r, 4), opt(r.sync_sensitivity, 3), r.evidence);
+        }
+        m.push('\n');
+        for r in v.comparisons.iter().filter(|r| r.note.is_some()) {
+            let _ = writeln!(m, "- {}: {}", r.name, r.note.as_deref().unwrap_or(""));
+        }
+        m.push('\n');
+    }
+
+    let _ = writeln!(m, "## 5. Altimeter units\n");
+    if v.altimeter_scale.is_empty() {
+        let _ = writeln!(m, "No altimeter field compared.\n");
+    } else {
+        let _ = writeln!(m, "The game's foot is 1/3.28 m. The exact foot is 0.3048 m. Each is reported separately.\n");
+        let _ = writeln!(m, "| Field | n | r | m per unit | Error as metres | As game foot | As exact foot | Nearest |\n|---|---|---|---|---|---|---|---|");
+        for a in &v.altimeter_scale {
+            let _ = writeln!(m, "| {} | {} | {} | {} | {} | {} | {} | {} |", a.field, a.n, opt(a.pearson_r, 5), opt(a.metres_per_unit, 6), opt(a.error_as_metres_m, 3), opt(a.error_as_game_foot_m, 3), opt(a.error_as_exact_foot_m, 3), a.nearest);
+        }
+        m.push('\n');
+    }
+
+    let _ = writeln!(m, "## 6. Horizontal map transform\n");
+    match &v.horizontal {
+        None => {
+            let _ = writeln!(m, "Not fitted.\n");
+        }
+        Some(h) => {
+            let _ = writeln!(m, "Accepted: **{}**. Best: `{}`, RMS {:.1} m over {} positions, next hypothesis {} times worse.\n", h.accepted, h.best, h.best_rms_m, h.n, opt(h.separation, 1));
+            let _ = writeln!(m, "Free scale per metre: x {:.3e}, y {:.3e}. From map limits: {:.3e}, {:.3e}. Map direction vs compass: {} deg (p50 / p99).\n", h.free_scale_x.unwrap_or(f64::NAN), h.free_scale_y.unwrap_or(f64::NAN), h.expected_scale_x, h.expected_scale_y, dist(&h.direction_error_deg, 2));
+        }
+    }
+
+    let _ = writeln!(m, "## 7. Control and engine fields\n");
+    if v.field_matches.is_empty() {
+        let _ = writeln!(m, "No replay field matched a telemetry field at |r| >= 0.95.\n");
+    } else {
+        let _ = writeln!(m, "Replay fields with a strong linear relation to a telemetry field, `telemetry = scale * replay + intercept`. A match needs review before it becomes a meaning.\n");
+        let _ = writeln!(m, "| Replay field | 8111 field | n | r | Scale | Intercept | Residual RMS |\n|---|---|---|---|---|---|---|");
+        for f in v.field_matches.iter().take(30) {
+            let _ = writeln!(m, "| {} | {} | {} | {:.4} | {:.5} | {:.4} | {:.4} |", f.replay_field, f.telemetry_field, f.n, f.pearson_r, f.scale, f.intercept, f.residual_rms);
+        }
+        if v.field_matches.len() > 30 {
+            let _ = writeln!(m, "\n{} more in `validation-data.json`.", v.field_matches.len() - 30);
+        }
+        m.push('\n');
+    }
+
+    if !v.marks.is_empty() {
+        let _ = writeln!(m, "## 8. Marks\n");
+        let _ = writeln!(m, "| Note | Capture s | Replay s | Altitude m | Speed m/s |\n|---|---|---|---|---|");
+        for k in &v.marks {
+            let _ = writeln!(m, "| {} | {:.2} | {} | {} | {} |", k.note, k.capture_t_s, opt(k.replay_t_s, 2), opt(k.altitude_m, 1), opt(k.speed_mps, 1));
+        }
+        m.push('\n');
+    }
+
+    let list = |m: &mut String, title: &str, items: &[String]| {
+        let _ = writeln!(m, "## {title}\n");
+        if items.is_empty() {
+            let _ = writeln!(m, "None.");
+        }
+        for i in items {
+            let _ = writeln!(m, "- {i}");
+        }
+        m.push('\n');
+    };
+    list(&mut m, "Data gaps", &v.data_gaps);
+    list(&mut m, "Verified discoveries", &v.verified_discoveries);
+    list(&mut m, "Unresolved technical questions", &v.unresolved);
+    list(&mut m, "Potential implications for Strike Master", &v.strike_master_implications);
     m
 }

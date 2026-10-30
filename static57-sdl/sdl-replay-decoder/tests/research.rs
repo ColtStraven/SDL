@@ -60,7 +60,7 @@ fn data(vehicle: &str, peak: f32) -> (Vec<u8>, ResearchData) {
 #[test]
 fn provenance_and_replay_identity() {
     let (f, d) = data("f-5e", 200.0);
-    assert_eq!(d.schema, "static57.sdl.research-data/0.3");
+    assert_eq!(d.schema, "static57.sdl.research-data/0.4");
     assert_eq!(d.replay.sha256, sha256_hex(&f));
     assert_eq!(d.replay.size_bytes, f.len() as u64);
     assert_eq!(d.replay.format_magic, "0x00018C1C");
@@ -231,7 +231,7 @@ fn cross_replay_analysis() {
     let (_, c) = data("mig_23ml", 300.0);
     let dirs = ["a".to_string(), "b".to_string(), "c".to_string()];
     let s = survey::analyze(&[a, b, c], &dirs);
-    assert_eq!(s.schema, "static57.sdl.research-summary/0.3");
+    assert_eq!(s.schema, "static57.sdl.research-summary/0.4");
     assert_eq!(s.totals.replays, 3);
     assert_eq!(s.totals.replays_with_author, 3);
     assert_eq!(s.totals.weapons_named, 3);

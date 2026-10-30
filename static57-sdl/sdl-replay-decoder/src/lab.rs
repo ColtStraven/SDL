@@ -7,6 +7,7 @@ use crate::export::replay_ref;
 use crate::manifest::{self, Depth, Manifest, Options};
 use crate::packets::{PacketRecord, RecordKind};
 use crate::shells;
+use crate::systems::{self, AuthorSample};
 use crate::tracks::{FlightReport, FlightSample, Reconstructor, TrackConfig};
 use crate::units::Registry;
 use crate::weapons::{self, AircraftHistory, WeaponEvent, WeaponSample, WeaponStats};
@@ -23,6 +24,8 @@ pub struct Extraction {
     pub weapon_samples: Vec<(String, Vec<WeaponSample>)>,
     pub weapon_stats: WeaponStats,
     pub history: AircraftHistory,
+    /// Author samples with their nearest cockpit message.
+    pub author: Vec<AuthorSample>,
     pub ecs_creation_packets: u64,
     pub ecs_creation_failures: u64,
 }
@@ -42,6 +45,8 @@ pub fn extract(
     let mut collector = weapons::Collector::default();
     let mut history = AircraftHistory::default();
     let (mut kills, mut damage, mut hits) = (Vec::new(), Vec::new(), Vec::new());
+    let mut author = Vec::new();
+    let mut cockpit = Vec::new();
     let (mut creation_packets, mut creation_failures) = (0u64, 0u64);
     let opts = Options { depth: Depth::Packets, ..opts };
 
@@ -62,11 +67,17 @@ pub fn extract(
                     let v = &s.velocity;
                     let pos = [s.position.x_m, s.position.y_m, s.position.z_m];
                     history.push(s.uid, t, pos.map(|c| c as f32), [v.vx_mps as f32, v.vy_mps as f32, v.vz_mps as f32]);
+                    if s.is_author {
+                        if let Some(crate::aircraft::EntryBody::State(st)) = d.entries.iter().find(|e| e.uid == s.uid).map(|e| &e.body) {
+                            author.push(AuthorSample::from_state(t, s.uid, st));
+                        }
+                    }
                     sink(s);
                 });
             }
             Some(4) => {
                 if let Some(c) = crate::cockpit::decode(t, payload) {
+                    cockpit.push(c.clone());
                     rec.push_cockpit(c);
                 } else {
                     match shells::decode(payload) {
@@ -110,6 +121,10 @@ pub fn extract(
     })?;
 
     let flight = rec.finish();
+    for s in &mut author {
+        s.vehicle = registry.resolve(s.uid, s.t_ms).and_then(|u| u.vehicle.clone());
+    }
+    systems::attach_cockpit(&mut author, &cockpit, cfg.cockpit_match_ms);
     let (weapons, weapon_samples, weapon_stats) = collector.finish(&registry, &history, &flight.author_uids);
     Ok(Extraction {
         manifest,
@@ -122,6 +137,7 @@ pub fn extract(
         weapon_samples,
         weapon_stats,
         history,
+        author,
         ecs_creation_packets: creation_packets,
         ecs_creation_failures: creation_failures,
     })
