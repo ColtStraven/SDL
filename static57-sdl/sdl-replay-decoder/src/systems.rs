@@ -38,21 +38,25 @@ pub struct Candidate {
     pub basis: &'static str,
 }
 
-/// Every field studied. "Candidate" labels are not established meanings.
+/// Every field studied. DERIVED entries were compared with a real 8111
+/// capture on two aircraft (`saab_a32a_red_adam`, `saab_j21a_1`), so they are
+/// measured, but not yet across the fleet. EXPERIMENTAL entries were checked
+/// only against the replay's own cockpit message. UNKNOWN entries were not
+/// exercised in the capture.
 pub const CANDIDATES: &[Candidate] = &[
-    Candidate { field: "gear_bit", location: "state bit 0 (ground_flag)", label: "landing gear not retracted", scale: "0 or 1", evidence: Evidence::Experimental, basis: "Agrees with cockpit id 228 in 19,475 of 19,485 samples, and stays set at speed. Not an on-ground flag" },
-    Candidate { field: "throttle_boost", location: "engine boost_raw (int16)", label: "engine throttle", scale: "raw / 32767 * 1.1", evidence: Evidence::Experimental, basis: "Equals cockpit id 240 with ratio 1.100 (p5 to p95). Present only above 1.0, and not in every such sample" },
-    Candidate { field: "throttle_nibble", location: "controls nibble 11", label: "engine throttle, coarse", scale: "floor(throttle * 15), capped at 15", evidence: Evidence::Experimental, basis: "Matches floor(id 240 * 15) in 93.5% of samples" },
-    Candidate { field: "engine_state", location: "engine state byte", label: "engine state", scale: "0 stopped, 1-6 starting, 7 running, 8 stopping (candidate)", evidence: Evidence::Experimental, basis: "State 7 holds 88% of samples, states 1-5 occur parked" },
-    Candidate { field: "elevator_nibble", location: "controls nibble 1", label: "pitch control", scale: "signed, 8 neutral", evidence: Evidence::Experimental, basis: "Tracks cockpit id 23 (r 0.53 to 0.93 on 16 of 17 aircraft, -0.86 on saab_j35a). Weak against pitch rate" },
-    Candidate { field: "aileron_nibble", location: "controls nibble 2", label: "roll control", scale: "signed, 8 neutral", evidence: Evidence::Experimental, basis: "Opposes roll rate (r -0.3 to -0.8 on 14 of 17 aircraft)" },
-    Candidate { field: "rudder_nibble", location: "controls nibble 3", label: "yaw control", scale: "signed, 8 neutral", evidence: Evidence::Experimental, basis: "Tracks cockpit ids 15-17 on some aircraft. No clear yaw-rate response" },
-    Candidate { field: "brake_nibble", location: "controls nibble 4", label: "wheel brake", scale: "0 or 15", evidence: Evidence::Experimental, basis: "Over 97% of samples with only this set are below 5 m/s" },
-    Candidate { field: "sweep_nibble", location: "controls nibble 10", label: "variable-geometry position", scale: "0-15", evidence: Evidence::Experimental, basis: "Non-zero on su_22m4, f_111f and mirage_milan only, and rises with speed. r 0.965 against id 365" },
-    Candidate { field: "nibble_5", location: "controls nibble 5", label: "unassigned (flaps or airbrake)", scale: "0 or 15", evidence: Evidence::Unknown, basis: "Mostly low speed, on 8 aircraft. 8111 flaps and airbrake fields needed" },
-    Candidate { field: "nibble_8", location: "controls nibble 8", label: "unassigned (flaps or airbrake)", scale: "0 or 15", evidence: Evidence::Unknown, basis: "Below 115 m/s in 95% of samples, on 8 aircraft. 8111 needed" },
-    Candidate { field: "nibble_0", location: "controls nibble 0", label: "unassigned", scale: "0-15", evidence: Evidence::Unknown, basis: "No stable relation found" },
-    Candidate { field: "fuel_cockpit", location: "cockpit id 195", label: "fuel quantity", scale: "unit not established", evidence: Evidence::Experimental, basis: "Falls steadily in flight on most aircraft. Mass unit needs 8111 Mfuel" },
+    Candidate { field: "gear_bit", location: "state bit 0 (ground_flag)", label: "landing gear not retracted", scale: "0 up, 1 otherwise", evidence: Evidence::Derived, basis: "r 0.995 and 0.994 against 8111 gear %. Agrees with cockpit id 228 in over 99.9% of about 19,900 samples. Not an on-ground flag" },
+    Candidate { field: "throttle_boost", location: "engine boost_raw (int16)", label: "throttle above 100%", scale: "raw / 32767 * 1.1", evidence: Evidence::Derived, basis: "Reads 1.011, 1.022 and 1.100 where 8111 throttle reads 101, 102 and 110% (244 samples, one aircraft). Absent at or below 100%" },
+    Candidate { field: "throttle_nibble", location: "controls nibble 11", label: "engine throttle, coarse", scale: "floor(throttle * 15), capped at 15", evidence: Evidence::Derived, basis: "r 0.964 and 0.995 against 8111 throttle. Matches floor(id 240 * 15) in 93.5% of samples" },
+    Candidate { field: "flaps_nibble", location: "controls nibble 0", label: "flap position", scale: "floor(flaps * 15); seen at 0 and 4 (33%)", evidence: Evidence::Derived, basis: "r 0.991 and 0.965 against 8111 flaps %, with only two positions flown" },
+    Candidate { field: "elevator_nibble", location: "controls nibble 1", label: "stick pitch input", scale: "signed, 8 neutral, about 7.5 steps per full travel", evidence: Evidence::Derived, basis: "Monotonic against 8111 stick_elevator apart from a cluster at value 5. r 0.919 on one aircraft, 0.554 on the other because of that cluster" },
+    Candidate { field: "aileron_nibble", location: "controls nibble 2", label: "stick roll input", scale: "signed, 8 neutral, about 7 steps per full travel", evidence: Evidence::Derived, basis: "Monotonic against 8111 stick_ailerons apart from values 4 and 5. r 0.67 and 0.70. Opposes roll rate on 14 of 17 aircraft" },
+    Candidate { field: "rudder_nibble", location: "controls nibble 3", label: "pedal input", scale: "signed, 8 neutral, about 7 steps per full travel", evidence: Evidence::Derived, basis: "r 0.715 against 8111 rudder % on one aircraft. Barely exercised on the other" },
+    Candidate { field: "blister_nibble", location: "controls nibble 4", label: "follows 8111 blister1", scale: "0 or 15", evidence: Evidence::Derived, basis: "15 where blister1 is 1, 0 where it is 0 (r 0.971, 0.976). Set while parked. What blister1 represents is not established. The earlier wheel-brake guess is withdrawn" },
+    Candidate { field: "engine_state", location: "engine state byte", label: "engine start sequence", scale: "0 stopped, 1-6 starting, 7 running, 8 stopped", evidence: Evidence::Derived, basis: "8111 RPM by state: 0 at 0, 12-18 at 1, about 29 at 2, 120 at 4, 190-210 at 5, full RPM at 7, 0 at 8" },
+    Candidate { field: "fuel_cockpit", location: "cockpit id 195", label: "fuel mass", scale: "kg", evidence: Evidence::Derived, basis: "Equals 8111 fuel (scale 1.000) and tracks Mfuel kg (r 0.998-1.000, scale 0.998-1.011)" },
+    Candidate { field: "sweep_nibble", location: "controls nibble 10", label: "variable-geometry position", scale: "0-15", evidence: Evidence::Experimental, basis: "Non-zero on su_22m4, f_111f and mirage_milan only, and rises with speed. Not in the capture" },
+    Candidate { field: "nibble_5", location: "controls nibble 5", label: "unassigned", scale: "0 or 15", evidence: Evidence::Unknown, basis: "Mostly low speed, on 8 aircraft. Never set in the compared flights. Airbrake is a candidate" },
+    Candidate { field: "nibble_8", location: "controls nibble 8", label: "unassigned", scale: "0 or 15", evidence: Evidence::Unknown, basis: "Below 115 m/s in 95% of samples, on 8 aircraft. Never set in the compared flights" },
 ];
 
 /// One sample of the recording author, with the nearest cockpit message.

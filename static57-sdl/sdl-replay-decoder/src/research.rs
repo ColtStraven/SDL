@@ -250,8 +250,8 @@ pub fn field_coverage() -> Vec<FieldCoverage> {
         f("aircraft_orientation", "decoded", Verified, "Heading, pitch, bank. Checked against cockpit and flight path."),
         f("aircraft_velocity", "decoded", Verified, "Saturates at 500 m/s (value is then a lower bound)."),
         f("aircraft_identity", "partial", Derived, "Vehicle, slot and loadout from ECS creation, checked against spawn position and battle log. Not every uid resolves."),
-        f("aircraft_controls", "partial", Experimental, "14 nibbles in seven bytes. Throttle, gear and roll control have candidates checked against the replay's cockpit message, not yet against 8111."),
-        f("engine_state", "partial", Experimental, "Throttle scale found: raw / 32767 * 1.1. State byte has candidate meanings. RPM not established."),
+        f("aircraft_controls", "partial", Experimental, "14 nibbles in seven bytes. Flaps, stick, pedals and throttle compared with one real 8111 capture on two aircraft. Some nibbles remain unassigned."),
+        f("engine_state", "partial", Experimental, "Start sequence states follow 8111 RPM. Throttle above 100% scales as raw / 32767 * 1.1. RPM is in the cockpit message on aircraft that carry it."),
         f("weapon_trajectory", "decoded", Verified, "MPI 0xF0DB position, velocity, time since launch. All messages consume their declared bit length."),
         f("weapon_launcher", "decoded", Verified, "Creation records name the launcher's entity id. Agrees with kill records in every checkable case."),
         f("weapon_launch", "partial", Derived, "Launch position from ECS creation, launch time from the weapon timer."),
@@ -263,8 +263,8 @@ pub fn field_coverage() -> Vec<FieldCoverage> {
         f("missile_seeker", "partial", Derived, "Radar target estimate and line of sight used to establish targets. Other fields not interpreted; the reported range field was rejected."),
         f("countermeasures", "not_decoded", Unknown, "Records delimited in type 2, values not interpreted."),
         f("ground_units_air_defense", "not_decoded", Unknown, "MPI 0xF073 ground positions not decoded. SAM launches appear only as weapons with no launcher."),
-        f("localhost_8111_fusion", "not_decoded", Unknown, "Recorder and validator exist. No real capture processed yet."),
-        f("horizontal_frame", "partial", Derived, "Cockpit compass reads heading + 90 on every replay tested, so +X is east and +Z is north. Not yet confirmed against 8111 map data."),
+        f("localhost_8111_fusion", "not_decoded", Unknown, "Use telemetry-validate. One real capture compared so far. Per-replay reports do not embed it: see validation-report.md."),
+        f("horizontal_frame", "partial", Derived, "+X east, +Z north. Compass reads heading + 90 on every replay tested, and one real 8111 capture confirmed the map transform on two flights."),
     ]
 }
 
@@ -560,7 +560,7 @@ fn questions(d: &ResearchData) -> Vec<String> {
     if d.cockpit_validation.cockpit_messages == 0 {
         q.push("This replay has no cockpit messages, so no independent instrument check was possible.".to_string());
     }
-    q.push("Does the 8111 map confirm +X east and +Z north, as the cockpit compass indicates?".to_string());
+    q.push("Does the +X east, +Z north map transform hold on other maps? Confirmed so far on one capture.".to_string());
     q
 }
 

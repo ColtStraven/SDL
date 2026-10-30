@@ -30,19 +30,21 @@ pub mod id {
     pub const ROLL: u16 = 52;
     /// Pitch angle, degrees, opposite sign to the flight-model pitch.
     pub const PITCH: u16 = 53;
-    /// Compass, degrees. Decoded heading + 90 (FINDINGS_M7_FLIGHT_SYSTEMS).
+    // The ids below were matched to 8111 fields on two aircraft
+    // (FINDINGS_M7_FLIGHT_SYSTEMS). Which exist depends on the instruments.
+    /// Compass, degrees. Decoded heading + 90.
     pub const COMPASS: u16 = 64;
     /// Clock hands: fractional hour on a 12-hour dial, whole minute, second.
     pub const CLOCK_HOUR: u16 = 69;
     pub const CLOCK_MIN: u16 = 71;
     pub const CLOCK_SEC: u16 = 73;
-    /// Fuel gauge candidate; unit not established.
+    /// Fuel, kg.
     pub const FUEL: u16 = 195;
-    /// Gear position candidate, 0 to 1.
+    /// Gear position, 0 to 1.
     pub const GEAR: u16 = 228;
-    /// Throttle candidate, 0 to 1.1.
+    /// Throttle, 0 to 1.1.
     pub const THROTTLE: u16 = 240;
-    /// Mach candidate on the aircraft that have it.
+    /// Mach, on aircraft with a Mach meter.
     pub const MACH: u16 = 453;
     /// G-meter, on aircraft that carry one.
     pub const G_METER: u16 = 482;

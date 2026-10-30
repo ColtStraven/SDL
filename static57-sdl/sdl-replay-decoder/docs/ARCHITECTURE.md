@@ -50,6 +50,11 @@
 | `shells` | MPI `0xF0DB` weapon records, accepted only when they consume exactly the declared length |
 | `seeker` | Seeker blocks carried by `ShellsData`: target estimate and line of sight. The range field is rejected |
 | `weapons` | Joins creation, flight records, aircraft state, seeker data and battle-log records into `WeaponEvent`s. The launcher is VERIFIED from the creation record. Target, name and outcome are DERIVED or UNKNOWN with explicit status. SDL does not classify misses. Names come from kill records or a per-replay type id, with a built-in hold-out test |
+| `systems` | Author samples with their cockpit message; control, engine and fuel candidates; load factor from position. `CANDIDATES` holds each field's evidence |
+| `telemetry` | Read-only 8111 recorder and capture loader |
+| `sync` | Capture-to-replay time alignment by cockpit clock and motion, with cross-checks |
+| `validate` | Replay association, flight-state comparison, altimeter units, map fit, field scan |
+| `simcapture` | Labelled synthetic captures for software tests |
 | `lab` | One extraction pass over a replay |
 | `measure` | Pure measurement functions: statistics, maneuver figures, transitions, gaps, robust z-score |
 | `research` | Per-replay `ResearchData`: tracks, identity, anomalies, missing data, findings, questions, coverage |

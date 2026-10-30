@@ -387,11 +387,11 @@ pub fn analyze(data: &[ResearchData], dirs: &[String]) -> CrossReplay {
     let mut recommendations = vec![
         Recommendation {
             title: "Independent 8111 validation",
-            detail: "Record the controlled flight in docs/CONTROLLED_TEST_PROCEDURE.md. It gives independent checks of flight state and launch timing, and ties X/Z to map north.".to_string(),
+            detail: "One real capture now confirms flight state on two aircraft. Record the short flight in docs/RECORD_ONE_FLIGHT.md to exercise flaps, airbrake and engine fields, and repeat with a feet-altimeter aircraft.".to_string(),
         },
         Recommendation {
             title: "Flight-control and engine decoding",
-            detail: "One real capture lets telemetry-validate score every control, engine and cockpit field against 8111. Candidates are listed in docs/FINDINGS_M7_FLIGHT_SYSTEMS.md.".to_string(),
+            detail: "telemetry-validate scores every control, engine and cockpit field against 8111. Unassigned nibbles need a flight that uses airbrake and full flaps. See docs/FINDINGS_M7_FLIGHT_SYSTEMS.md.".to_string(),
         },
         Recommendation {
             title: "Controlled LAR shots",

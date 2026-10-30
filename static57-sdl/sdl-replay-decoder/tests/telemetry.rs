@@ -250,7 +250,9 @@ fn a_refuel_starts_a_new_fuel_record() {
 
 #[test]
 fn every_candidate_is_labelled_short_of_verified() {
-    assert!(systems::CANDIDATES.iter().all(|c| c.evidence != sdl_replay_decoder::evidence::Evidence::Verified));
+    use sdl_replay_decoder::evidence::Evidence;
+    assert!(systems::CANDIDATES.iter().all(|c| c.evidence != Evidence::Verified), "two aircraft do not verify a fleet");
+    assert!(systems::CANDIDATES.iter().any(|c| c.evidence == Evidence::Unknown), "unexercised fields stay unknown");
 }
 
 #[test]
@@ -475,6 +477,12 @@ fn field_scan_reports_scale_without_naming_meaning() {
     assert!((m.scale - 100.0).abs() < 1.0, "{}", m.scale);
     assert!(v.field_matches.iter().all(|m| m.pearson_r.abs() >= 0.95));
     assert!(v.telemetry_fields.iter().any(|f| f == "state:H, m"));
+    assert!(v.candidate_checks.iter().any(|c| c.candidate == "gear_bit (expected)" && c.telemetry_field.as_deref() == Some("state:gear, %")));
+    let g = v.candidate_checks.iter().find(|c| c.candidate == "gear_bit").unwrap();
+    assert!(g.pearson_r.unwrap().abs() > 0.99, "{g:?}");
+    assert!(v.candidate_checks.iter().any(|c| c.candidate == "nibble_0" && c.distinct_values == 1), "an unexercised field is shown");
+    assert!(v.altimeter_by_vehicle.iter().any(|a| a.nearest == "game_foot_1_over_3.28"));
+    assert!(render_validation(&v).contains("Distinct values"));
 }
 
 #[test]

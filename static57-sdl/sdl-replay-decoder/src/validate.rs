@@ -127,6 +127,40 @@ pub struct FieldMatch {
     pub residual_rms: f64,
 }
 
+/// Best telemetry field for one control or systems candidate, however weak.
+#[derive(Debug, Clone, Serialize)]
+pub struct CandidateCheck {
+    pub candidate: String,
+    pub telemetry_field: Option<String>,
+    pub n: u64,
+    pub pearson_r: Option<f64>,
+    pub scale: Option<f64>,
+    pub intercept: Option<f64>,
+    /// Distinct replay values seen. A constant field cannot be tested.
+    pub distinct_values: u64,
+}
+
+/// Altimeter units from telemetry alone, for one vehicle.
+#[derive(Debug, Clone, Serialize)]
+pub struct VehicleAltimeter {
+    pub vehicle: String,
+    pub field: String,
+    pub n: u64,
+    pub metres_per_unit: Option<f64>,
+    pub pearson_r: Option<f64>,
+    pub nearest: &'static str,
+}
+
+/// Fuel use from telemetry alone, for one vehicle.
+#[derive(Debug, Clone, Serialize)]
+pub struct VehicleFuel {
+    pub vehicle: String,
+    pub seconds: f64,
+    pub burned_kg: f64,
+    pub mean_kg_per_s: f64,
+    pub mean_throttle_pct: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Coverage {
     pub capture_span_s: f64,
@@ -168,6 +202,9 @@ pub struct TelemetryValidation {
     pub altimeter_scale: Vec<ScaleFit>,
     pub horizontal: Option<MapFit>,
     pub field_matches: Vec<FieldMatch>,
+    pub candidate_checks: Vec<CandidateCheck>,
+    pub altimeter_by_vehicle: Vec<VehicleAltimeter>,
+    pub fuel_by_vehicle: Vec<VehicleFuel>,
     pub telemetry_fields: Vec<String>,
     pub marks: Vec<MarkMapped>,
     pub data_gaps: Vec<String>,
@@ -349,10 +386,12 @@ fn map_fit(c: &Capture, rows: &Rows) -> Option<MapFit> {
     })
 }
 
-/// Every replay field against every numeric telemetry field. A strong linear
-/// relation is reported with its scale, and meaning is decided by review.
-fn field_matches(c: &Capture, rows: &Rows) -> Vec<FieldMatch> {
-    let mut replay: BTreeMap<String, Vec<(usize, f64)>> = BTreeMap::new();
+type ReplayFields = BTreeMap<String, Vec<(usize, f64)>>;
+type TelemetryFields = BTreeMap<String, BTreeMap<usize, f64>>;
+
+/// Replay and telemetry fields, keyed by replay sample index.
+fn aligned_fields(c: &Capture, rows: &Rows) -> (ReplayFields, TelemetryFields) {
+    let mut replay: ReplayFields = BTreeMap::new();
     for (i, s) in rows.samples.iter().enumerate() {
         let mut put = |k: String, v: f64| replay.entry(k).or_default().push((i, v));
         for n in 0..14 {
@@ -385,9 +424,15 @@ fn field_matches(c: &Capture, rows: &Rows) -> Vec<FieldMatch> {
             }
         }
     }
+    (replay, tel)
+}
+
+/// Every replay field against every numeric telemetry field. A strong linear
+/// relation is reported with its scale, and meaning is decided by review.
+fn field_matches(replay: &ReplayFields, tel: &TelemetryFields) -> Vec<FieldMatch> {
     let mut out = Vec::new();
-    for (rk, rv) in &replay {
-        for (tk, tv) in &tel {
+    for (rk, rv) in replay {
+        for (tk, tv) in tel {
             let p: Vec<(f64, f64)> = rv.iter().filter_map(|(i, x)| Some((*x, *tv.get(i)?))).collect();
             if p.len() < MIN_FIELD_PAIRS {
                 continue;
@@ -404,6 +449,109 @@ fn field_matches(c: &Capture, rows: &Rows) -> Vec<FieldMatch> {
     out.sort_by(|a, b| b.pearson_r.abs().total_cmp(&a.pearson_r.abs()));
     out.truncate(MAX_FIELD_ROWS);
     out
+}
+
+const EXPECTED_PAIRS: &[(&str, &str)] = &[
+    ("nibble_0", "state:flaps, %"),
+    ("nibble_1", "indicators:stick_elevator"),
+    ("nibble_2", "indicators:stick_ailerons"),
+    ("nibble_3", "state:rudder, %"),
+    ("nibble_4", "indicators:blister1"),
+    ("nibble_11", "state:throttle 1, %"),
+    ("throttle_boost", "state:throttle 1, %"),
+    ("gear_bit", "state:gear, %"),
+    ("engine_state", "state:RPM 1"),
+    ("cockpit_195", "state:Mfuel, kg"),
+];
+
+/// The strongest telemetry partner of each control and systems candidate,
+/// reported even when weak, so a failed check stays visible.
+fn candidate_checks(replay: &ReplayFields, tel: &TelemetryFields) -> Vec<CandidateCheck> {
+    let mut names: Vec<String> = (0..14).map(|n| format!("nibble_{n}")).collect();
+    names.extend(["gear_bit", "throttle_boost", "engine_state", "cockpit_195", "cockpit_228", "cockpit_240"].map(String::from));
+    let mut out = Vec::new();
+    // The pairing each label predicts, reported whatever the scan prefers.
+    for (name, field) in EXPECTED_PAIRS {
+        let (Some(rv), Some(tv)) = (replay.get(*name), tel.get(*field)) else { continue };
+        let p: Vec<(f64, f64)> = rv.iter().filter_map(|(i, x)| Some((*x, *tv.get(i)?))).collect();
+        let fit = line_fit(&p);
+        out.push(CandidateCheck { candidate: format!("{name} (expected)"), telemetry_field: Some(field.to_string()), n: p.len() as u64, pearson_r: pearson(&p), scale: fit.map(|f| f.0), intercept: fit.map(|f| f.1), distinct_values: rv.iter().map(|x| x.1.to_bits()).collect::<BTreeSet<_>>().len() as u64 });
+    }
+    for name in names {
+        let Some(rv) = replay.get(&name) else { continue };
+        let distinct = rv.iter().map(|x| x.1.to_bits()).collect::<BTreeSet<_>>().len() as u64;
+        let mut best: Option<(f64, String, usize, (f64, f64))> = None;
+        for (tk, tv) in tel {
+            let p: Vec<(f64, f64)> = rv.iter().filter_map(|(i, x)| Some((*x, *tv.get(i)?))).collect();
+            if p.len() < 50 {
+                continue;
+            }
+            if let (Some(r), Some(f)) = (pearson(&p), line_fit(&p)) {
+                if best.as_ref().is_none_or(|b| r.abs() > b.0.abs()) {
+                    best = Some((r, tk.clone(), p.len(), f));
+                }
+            }
+        }
+        out.push(match best {
+            Some((r, tk, n, f)) => CandidateCheck { candidate: name, telemetry_field: Some(tk), n: n as u64, pearson_r: Some(r), scale: Some(f.0), intercept: Some(f.1), distinct_values: distinct },
+            None => CandidateCheck { candidate: name, telemetry_field: None, n: 0, pearson_r: None, scale: None, intercept: None, distinct_values: distinct },
+        });
+    }
+    out
+}
+
+/// Nearest `/state` reading to each `/indicators` reading.
+fn paired<'a>(c: &'a Capture) -> Vec<(&'a Observation, &'a Observation)> {
+    c.indicators.iter().filter_map(|o| {
+        let i = c.state.partition_point(|s| s.t_s < o.t_s);
+        let s = [i.checked_sub(1), Some(i)].into_iter().flatten().filter_map(|j| c.state.get(j)).min_by(|a, b| (a.t_s - o.t_s).abs().total_cmp(&(b.t_s - o.t_s).abs()))?;
+        ((s.t_s - o.t_s).abs() <= 0.06).then_some((o, s))
+    }).collect()
+}
+
+/// Altimeter scale per vehicle, from telemetry alone, so vehicles with no
+/// replay still count. `H, m` is the reference.
+fn altimeter_by_vehicle(c: &Capture) -> Vec<VehicleAltimeter> {
+    let mut groups: BTreeMap<(String, String), Vec<(f64, f64)>> = BTreeMap::new();
+    for (o, s) in paired(c) {
+        let (Some(v), Some(h)) = (&o.vehicle, s.get("H, m")) else { continue };
+        for (k, x) in o.fields.iter().filter(|(k, _)| k.starts_with("altitude")) {
+            groups.entry((v.clone(), k.clone())).or_default().push((*x, h));
+        }
+    }
+    groups.into_iter().filter(|(_, p)| p.len() >= 100).filter_map(|((vehicle, field), p)| {
+        let (m, _) = line_fit(&p)?;
+        let r = pearson(&p);
+        // A wrapping dial is not a scale.
+        if r.is_none_or(|r| r < 0.999) {
+            return None;
+        }
+        let nearest = [("metre", 1.0), ("game_foot_1_over_3.28", id::METRES_PER_GAME_FOOT), ("exact_foot_0.3048", METRES_PER_FOOT)].into_iter().min_by(|a, b| (a.1 - m).abs().total_cmp(&(b.1 - m).abs())).map_or("none", |x| x.0);
+        Some(VehicleAltimeter { vehicle, field, n: p.len() as u64, metres_per_unit: Some(m), pearson_r: r, nearest })
+    }).collect()
+}
+
+/// Fuel burned in each continuous stretch with falling `Mfuel`, by vehicle.
+fn fuel_by_vehicle(c: &Capture) -> Vec<VehicleFuel> {
+    let mut out: BTreeMap<String, (f64, f64, f64, f64)> = BTreeMap::new();
+    let pairs = paired(c);
+    for w in pairs.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let (Some(v), Some(q0), Some(q1)) = (&a.0.vehicle, a.1.get("Mfuel, kg"), b.1.get("Mfuel, kg")) else { continue };
+        let dt = b.1.t_s - a.1.t_s;
+        // Refuelling, a respawn or a gap is not consumption.
+        if a.0.vehicle != b.0.vehicle || !(0.0..=1.0).contains(&dt) || q1 > q0 {
+            continue;
+        }
+        let e = out.entry(v.clone()).or_default();
+        e.0 += dt;
+        e.1 += q0 - q1;
+        if let Some(t) = a.1.get("throttle 1, %") {
+            e.2 += t * dt;
+            e.3 += dt;
+        }
+    }
+    out.into_iter().filter(|(_, e)| e.0 >= 60.0).map(|(vehicle, e)| VehicleFuel { vehicle, seconds: e.0, burned_kg: e.1, mean_kg_per_s: e.1 / e.0, mean_throttle_pct: (e.3 > 0.0).then(|| e.2 / e.3) }).collect()
 }
 
 fn associate(c: &Capture, x: &ReplayView, sync: &SyncResult) -> Association {
@@ -511,7 +659,8 @@ pub fn validate(capture: &Capture, x: &ReplayView) -> TelemetryValidation {
     let rows = Rows { samples: x.author, sync: &sync, sigma: sync.uncertainty_s.unwrap_or(0.0), evidence };
     let association = associate(capture, x, &sync);
     let usable = sync.usable() && association.class != "unconfirmed" || (capture.meta.synthetic && sync.usable());
-    let (comparisons_, altimeter, horizontal, matches) = if usable { (comparisons(capture, &rows), altimeter_scale(capture, &rows), map_fit(capture, &rows), field_matches(capture, &rows)) } else { (Vec::new(), Vec::new(), None, Vec::new()) };
+    let (replay_fields, tel_fields) = if usable { aligned_fields(capture, &rows) } else { Default::default() };
+    let (comparisons_, altimeter, horizontal, matches, checks) = if usable { (comparisons(capture, &rows), altimeter_scale(capture, &rows), map_fit(capture, &rows), field_matches(&replay_fields, &tel_fields), candidate_checks(&replay_fields, &tel_fields)) } else { (Vec::new(), Vec::new(), None, Vec::new(), Vec::new()) };
     let cov = coverage(capture, &rows);
     let independent = !capture.meta.synthetic && association.class == "confirmed" && sync.quality == "established" && !sync.discontinuity;
 
@@ -533,7 +682,8 @@ pub fn validate(capture: &Capture, x: &ReplayView) -> TelemetryValidation {
     }
     for (n, s) in &capture.endpoints {
         if s.errors > 0 {
-            gaps.push(format!("{n}: {} of {} requests failed, first error: {}", s.errors, s.requests, s.first_error.as_deref().unwrap_or("-")));
+            let e: String = s.first_error.as_deref().unwrap_or("-").chars().take(40).collect();
+            gaps.push(format!("{n}: {} of {} requests failed, first error: {e}", s.errors, s.requests));
         }
     }
     if !usable {
@@ -545,7 +695,7 @@ pub fn validate(capture: &Capture, x: &ReplayView) -> TelemetryValidation {
     if capture.meta.synthetic {
         unresolved.push("This capture is synthetic. It tests the software and validates nothing about the replay".to_string());
     } else if independent {
-        for c in comparisons_.iter().filter(|c| c.n > 0) {
+        for c in comparisons_.iter().filter(|c| c.n > 0 && !c.name.contains("estimate") && !c.name.contains("expectation")) {
             if let (Some(p50), Some(p99)) = (c.abs_error.p50, c.abs_error.p99) {
                 discoveries.push(format!("{}: median abs error {p50:.3} {}, p99 {p99:.3}, n {}", c.name, c.unit, c.n));
             }
@@ -606,6 +756,9 @@ pub fn validate(capture: &Capture, x: &ReplayView) -> TelemetryValidation {
         altimeter_scale: altimeter,
         horizontal,
         field_matches: matches,
+        candidate_checks: checks,
+        altimeter_by_vehicle: altimeter_by_vehicle(capture),
+        fuel_by_vehicle: fuel_by_vehicle(capture),
         telemetry_fields,
         marks,
         data_gaps: gaps,

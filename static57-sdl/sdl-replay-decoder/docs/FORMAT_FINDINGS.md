@@ -1,6 +1,6 @@
 # S57-003 SDL — `.wrpl` Format Findings
 
-Decoder: `sdl-replay-decoder` 0.2.0. Date: 2026-10-29 (Milestones 1–3). Milestone 6 findings are in [FINDINGS_M6_ENGAGEMENTS.md](FINDINGS_M6_ENGAGEMENTS.md). Milestone 4 findings, on a corpus of 42 replays, are in [FINDINGS_M4_WEAPONS_IDENTITY.md](FINDINGS_M4_WEAPONS_IDENTITY.md); where they differ, that document supersedes this one.
+Decoder: `sdl-replay-decoder` 0.2.0. Date: 2026-10-29 (Milestones 1–3). Milestone 7 findings, which correct §5.3 `ground_flag` and §5.6 items 1 and 4, are in [FINDINGS_M7_FLIGHT_SYSTEMS.md](FINDINGS_M7_FLIGHT_SYSTEMS.md). Milestone 6 findings are in [FINDINGS_M6_ENGAGEMENTS.md](FINDINGS_M6_ENGAGEMENTS.md). Milestone 4 findings, on a corpus of 42 replays, are in [FINDINGS_M4_WEAPONS_IDENTITY.md](FINDINGS_M4_WEAPONS_IDENTITY.md); where they differ, that document supersedes this one.
 Evidence base: 27 genuine client replays recorded by the Static 57 owner, 2026-10-22 to 2026-10-25 (see [COMPATIBILITY.md](COMPATIBILITY.md)).
 
 Classifications: **VERIFIED** (documented structure with a reproducible cross-check on Static 57 replays), **REPORTED** (external documentation only), **DERIVED**, **EXPERIMENTAL**, **UNKNOWN**.
@@ -109,7 +109,7 @@ Entry kinds across the corpus: 2,468,023 state records, 1,050,657 withheld (both
 | Velocity direction | bits 9–17 = abs(vx)/speed and bits 0–8 = abs(vy)/speed (9 bits each); signs in bits 31, 30, 29 for x, y, z; abs(vz)/speed = sqrt(1 − rx² − ry²) | 1/511 | Unit direction of world velocity | VERIFIED | Angle to the finite-difference velocity: median 0.08°, p99 1.9°. Author displacement direction: median 0.09–0.37° |
 | Vertical speed | Velocity y component | DERIVED from the above | m/s | VERIFIED | Matches cockpit id 39: median abs error 0.005–0.26 m/s in 18 replays |
 | Bit 18 of `packed_velocity` | 1 bit | — | No effect on speed or direction; meaning not established | UNKNOWN | Set in about 44% of moving records |
-| `ground_flag` | First state bit | — | Reported as on-ground | EXPERIMENTAL | Set in 73% of records at 5–40 m/s and 2.6% above 80 m/s. Exported raw |
+| `ground_flag` | First state bit | — | Landing gear not retracted (Milestone 7). The reported on-ground meaning is wrong | DERIVED | r 0.99 against 8111 gear % on two aircraft. Set in 73% of records at 5–40 m/s and 2.6% above 80 m/s. Exported raw |
 | Trailer | 3 × `f32` after terminator | — | Recording author's position (REPORTED) | VERIFIED as an author locator | The nearest state record is within 0.01 m (median) in 99% of packets. Those records validate against cockpit instruments |
 
 The speed field saturates at 500 m/s: 2,945 records across the corpus. Their exported speed is a lower bound, flagged `speed_saturated`.
@@ -140,7 +140,7 @@ Every state record yields position, altitude, orientation and velocity. Withheld
 
 ### 5.6 Known limitations and open questions
 
-1. **Horizontal frame:** X and Z are metres in the world frame, but their relation to map north and to map grid coordinates is unknown. It needs `/map_info.json` plus `/map_obj.json` from 8111 (see [TELEMETRY_8111.md](TELEMETRY_8111.md)).
+1. **Horizontal frame:** resolved in Milestone 7. +X is east, +Z is north, and `map_x = +X, map_y = -Z` was confirmed by a real capture.
 2. **Remote aircraft** are network-replicated states in a client replay. Their kinematic self-consistency is lower (median displacement residual 0.06–40 m per replay), and no independent instrument exists for them.
 3. **Identity:** resolved in part by Milestone 4 (vehicle per track with a confidence class). Track ids remain provisional, and player and life links are unresolved.
 4. **Not decoded:** `unk_u32`, `unk_bit`, bit 18 of the velocity word, the per-entry hidden flags, gun-entry bits, weapon list values, the seven control bytes (reported: stick, flaps, rudder, throttle), engine fields, sensors, countermeasures, targets, the seeker block, and the 13/24/35 bytes after the trailer (multiples of 11 plus 2). Controls and engine states are exported raw.

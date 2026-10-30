@@ -198,3 +198,41 @@ fn genuine_flights_realign_from_a_synthetic_capture() {
     assert!(flown >= 20, "{flown}");
     assert!(within * 10 >= flown * 9, "{within} of {flown}");
 }
+
+/// The real capture of 2026-10-30, when it is on this machine. Set
+/// SDL_CAPTURE_DIR to use another. Replays and captures are not in Git.
+#[test]
+#[ignore = "needs a real 8111 capture and its replays"]
+fn real_capture_validates_against_its_replays() {
+    use sdl_replay_decoder::lab::extract;
+    use sdl_replay_decoder::telemetry::load;
+    use sdl_replay_decoder::tracks::TrackConfig;
+    use sdl_replay_decoder::validate::{validate, ReplayView};
+    let root = std::env::var_os("SDL_CAPTURE_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("../../telemetry/20261030_163709"));
+    if !root.is_dir() {
+        eprintln!("no capture at {}", root.display());
+        return;
+    }
+    let dir = replay_dir().expect("no replay directory: set SDL_REPLAY_DIR");
+    let c = load(&root).unwrap();
+    assert!(!c.meta.synthetic);
+    for (name, vehicle) in [("#2026.10.30 09.44.48.wrpl", "saab_a32a_red_adam"), ("#2026.10.30 09.50.03.wrpl", "saab_j21a_1")] {
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        let x = extract(name, &bytes, Options::default(), TrackConfig::default(), |_| {}).unwrap();
+        let v = validate(&c, &ReplayView::of(&x, name));
+        assert!(v.independent_validation, "{name}: {}", v.status);
+        assert_eq!(v.association.class, "confirmed");
+        assert!(v.association.replay_vehicles.iter().any(|r| r == vehicle));
+        assert_eq!(v.sync.quality, "established");
+        let h = v.horizontal.as_ref().unwrap();
+        assert!(h.accepted);
+        assert_eq!(h.best, "map_x = +X, map_y = -Z");
+        let err = |n: &str| v.comparisons.iter().find(|c| c.name == n).unwrap().abs_error.p50.unwrap();
+        assert!(err("altitude") < 1.0);
+        assert!(err("vertical_speed") < 0.3);
+        assert!(err("indicated_airspeed") < 0.3);
+        assert!(err("pitch") < 0.2);
+        assert!(err("heading") < 0.2);
+    }
+}
+

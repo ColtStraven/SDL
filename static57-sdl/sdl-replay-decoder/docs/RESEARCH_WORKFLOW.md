@@ -28,7 +28,9 @@ research/
     weapon_tracks.jsonl   every weapon sample
 ```
 
-`research/` is generated output and is not committed. Aircraft sample data can be produced on demand with `sdl-replay-decoder flight <replay>`; it reaches several hundred MB for a long battle.
+After a flight recorded with `telemetry-record`, `telemetry-validate` adds `validation-report.md` and `validation-data.json` to the replay's folder. See [RECORD_ONE_FLIGHT.md](RECORD_ONE_FLIGHT.md).
+
+`research/` and `telemetry/` are generated output and are not committed. Aircraft sample data can be produced on demand with `sdl-replay-decoder flight <replay>`; it reaches several hundred MB for a long battle.
 
 Reports are generated from the JSON datasets alone, and tests check that they agree. Unmeasured values print as `unavailable` in Markdown and `null` in JSON. Neither means zero.
 
@@ -50,7 +52,9 @@ Reports are generated from the JSON datasets alone, and tests check that they ag
 - **Remote aircraft are network copies.** Maneuver figures are produced for the recording author only.
 - **Combat maximums are lower bounds,** not performance limits, and aircraft configuration is unknown.
 - **Speed saturates at 500 m/s** for aircraft. Those values are lower bounds and are flagged.
-- **X/Z are not tied to map north.** This needs an 8111 recording (`TELEMETRY_8111.md`).
+- **+X is east and +Z is north.** One real 8111 capture confirmed this on two flights.
+- **Validation covers few aircraft.** Real 8111 comparisons so far cover two aircraft. A report's `independent_validation` is true only for a real capture, a confirmed replay and established alignment. A synthetic capture proves nothing about the game.
+- **Replay speed is ground speed,** not TAS or IAS. Keep the three apart.
 - **Time of flight** ends at the last sample. Its uncertainty is the sample interval.
 
 ## Strike Master proposals

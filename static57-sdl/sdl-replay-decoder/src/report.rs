@@ -225,7 +225,7 @@ pub fn render(d: &ResearchData) -> String {
     if y.samples == 0 {
         let _ = writeln!(m, "No author samples.\n");
     } else {
-        let _ = writeln!(m, "Replay fields checked against the replay's own cockpit message. Labels stay candidates until a real 8111 capture agrees.\n");
+        let _ = writeln!(m, "Replay fields checked against the replay's own cockpit message. See docs/FINDINGS_M7_FLIGHT_SYSTEMS.md for 8111 results.\n");
         let _ = writeln!(m, "| Check | Result | Class |\n|---|---|---|");
         let _ = writeln!(m, "| Author samples (with cockpit) | {} ({}) | VERIFIED |", y.samples, y.samples_with_cockpit);
         let _ = writeln!(m, "| Gear bit vs cockpit gear | {} of {} agree, {} changes | {:?} |", y.gear_vs_cockpit.agree, y.gear_vs_cockpit.n, y.gear_transitions, y.gear_vs_cockpit.evidence);
@@ -427,7 +427,7 @@ pub fn render_summary(c: &CrossReplay) -> String {
 
     let _ = writeln!(m, "## 8. Aircraft systems\n");
     let y = &c.systems;
-    let _ = writeln!(m, "Replay fields against the replay's own cockpit message. This is not independent validation: no real 8111 capture has been compared.\n");
+    let _ = writeln!(m, "Replay fields against the replay's own cockpit message. This table is not independent validation. Real 8111 comparisons are in each flight's validation-report.md.\n");
     let _ = writeln!(m, "| Check | Result |\n|---|---|");
     let _ = writeln!(m, "| Author samples | {} |", y.samples);
     let _ = writeln!(m, "| Gear bit vs cockpit gear | {} of {} agree |", y.gear_agree, y.gear_n);
@@ -544,6 +544,15 @@ pub fn render_validation(v: &crate::validate::TelemetryValidation) -> String {
         m.push('\n');
     }
 
+    if !v.altimeter_by_vehicle.is_empty() {
+        let _ = writeln!(m, "From telemetry alone, against `H, m`, for every vehicle in the capture:\n");
+        let _ = writeln!(m, "| Vehicle | Field | n | m per unit | r | Nearest |\n|---|---|---|---|---|---|");
+        for a in &v.altimeter_by_vehicle {
+            let _ = writeln!(m, "| {} | {} | {} | {} | {} | {} |", a.vehicle, a.field, a.n, opt(a.metres_per_unit, 6), opt(a.pearson_r, 6), a.nearest);
+        }
+        m.push('\n');
+    }
+
     let _ = writeln!(m, "## 6. Horizontal map transform\n");
     match &v.horizontal {
         None => {
@@ -556,6 +565,14 @@ pub fn render_validation(v: &crate::validate::TelemetryValidation) -> String {
     }
 
     let _ = writeln!(m, "## 7. Control and engine fields\n");
+    if !v.candidate_checks.is_empty() {
+        let _ = writeln!(m, "Strongest telemetry partner of each candidate, shown even when weak. A field with one distinct value was not exercised.\n");
+        let _ = writeln!(m, "| Candidate | Distinct values | 8111 field | n | r | Scale | Intercept |\n|---|---|---|---|---|---|---|");
+        for c in &v.candidate_checks {
+            let _ = writeln!(m, "| {} | {} | {} | {} | {} | {} | {} |", c.candidate, c.distinct_values, c.telemetry_field.as_deref().unwrap_or("none"), c.n, opt(c.pearson_r, 3), opt(c.scale, 4), opt(c.intercept, 3));
+        }
+        m.push('\n');
+    }
     if v.field_matches.is_empty() {
         let _ = writeln!(m, "No replay field matched a telemetry field at |r| >= 0.95.\n");
     } else {
@@ -575,6 +592,16 @@ pub fn render_validation(v: &crate::validate::TelemetryValidation) -> String {
         let _ = writeln!(m, "| Note | Capture s | Replay s | Altitude m | Speed m/s |\n|---|---|---|---|---|");
         for k in &v.marks {
             let _ = writeln!(m, "| {} | {:.2} | {} | {} | {} |", k.note, k.capture_t_s, opt(k.replay_t_s, 2), opt(k.altitude_m, 1), opt(k.speed_mps, 1));
+        }
+        m.push('\n');
+    }
+
+    if !v.fuel_by_vehicle.is_empty() {
+        let _ = writeln!(m, "## Fuel use\n");
+        let _ = writeln!(m, "From `Mfuel, kg` over the whole capture, combat flight, not a controlled test.\n");
+        let _ = writeln!(m, "| Vehicle | Seconds | Burned kg | kg/s | Mean throttle % |\n|---|---|---|---|---|");
+        for f in &v.fuel_by_vehicle {
+            let _ = writeln!(m, "| {} | {:.0} | {:.0} | {:.3} | {} |", f.vehicle, f.seconds, f.burned_kg, f.mean_kg_per_s, opt(f.mean_throttle_pct, 0));
         }
         m.push('\n');
     }
