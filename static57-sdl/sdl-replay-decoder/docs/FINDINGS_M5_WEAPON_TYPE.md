@@ -37,7 +37,7 @@ The remaining prefix bytes are preserved in `creation_prefix`; their meaning is 
 
 The equipment list names weapons a unit can carry, in the same form kill records use, but it does not identify which one was fired. It is exported as `weapon_candidates`, class UNKNOWN.
 
-**Flight physics.** For the 19 weapons with at least 3 examples from each source, median top speed was compared between kill-named and type-id-named shots. All 19 agree within ±25%, and 14 within 3%.
+**Flight physics.** For the 19 weapons with at least 3 examples from each source, median top speed was compared between kill-named and type-id-named shots. All 19 agree within ±25%, and 15 within 3%.
 
 | Weapon | Kill-named: shots, median top speed m/s | Type-id-named: shots, median top speed m/s |
 |---|---|---|
