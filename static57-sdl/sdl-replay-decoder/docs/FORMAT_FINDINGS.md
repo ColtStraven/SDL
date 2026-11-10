@@ -125,7 +125,10 @@ Project Phosphor recorded localhost:8111 during the same flight (handoff `projec
 | Track heading `atan2(Δx, Δz)` vs 8111 map heading | Median difference 0.24° (larger only in turns, from finite differencing) | VERIFIED: +x east, +z north, assuming the 8111 map is north-up |
 | Ownship `y` vs `altitude_hour` / `/state H` | RMS 0.24 m / 0.91 m (`H` is rounded to 1 m) | VERIFIED |
 | Firing: 8111 `weapon2` = 1 only inside SDL's firing bursts | Phosphor §4.3 | VERIFIED (by Phosphor) |
-| Replay `start_time` vs capture wall clock | Implies 118.5 s, not 124.05 s: a ~5.5 s gap | UNKNOWN cause; needs other replays |
+| Replay `start_time` vs capture wall clock | Implies 118.5 s, not 124.05 s: a ~5.5 s gap | Cause narrowed; see the next row |
+| Replay `start_time` + session time vs the in-game cockpit clock (ids 69/71/73) | Ahead by **5–6 s**, constant across each flight: 2,455 samples on 2026-11-09 and 3,089 on 2026-11-10. The 1 s spread is the clock's whole-second resolution. The cockpit clock is a 12-hour clock showing PC local time (UTC−7 here) | Observation VERIFIED (both replays); offset DERIVED |
+
+**Clock interpretation (EXPERIMENTAL, two replays).** The in-game clock follows the PC's local time, and `start_time` lies about 5.5 s after session time zero. So PC wall time ≈ `start_time` + session time − 5.5 s (±1 s). That would let an external capture (8111 or video) be aligned to replay time from the PC clock alone, to about ±1 s, before any finer anchor such as the 124.05 s altitude fit. It has been checked against an external capture only on 2026-11-09.
 
 ### 4.6 Projectile hit events (added 2026-11-10)
 
