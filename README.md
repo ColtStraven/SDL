@@ -12,10 +12,10 @@ Its foundation is a native `.wrpl` replay decoder, written in Rust and owned by 
 |---|---|---|
 | M1 — Replay file inspector | Signature, version registry, 1234-byte header, sections, codec detection, JSON manifest | **Done** |
 | M2 — Packet extractor | Bounded zstd/zlib streaming, packet framing, timestamps, raw payload preservation, JSONL export | **Done** |
-| M3 — Aircraft track | Decode `aircraft_small` flight-model sync; validate against localhost:8111 | **Started**: author position track + cockpit instruments, altimeter-verified on 1 replay; other aircraft not yet |
+| M3 — Aircraft track | Decode `aircraft_small` flight-model sync; validate against localhost:8111 | **Started**: author position track + cockpit instruments, altimeter-verified on 2 replays; other aircraft not yet |
 | M4+ | Entities, server segments, weapons, sensors, telemetry fusion | Not started |
 
-The decoder is validated on **28 genuine War Thunder 2.59 client replays** (format `0x00018C1C`, Zstandard), with 4,303,777 packets framed and every byte accounted for. See [COMPATIBILITY.md](static57-sdl/sdl-replay-decoder/docs/COMPATIBILITY.md).
+The decoder is validated on **29 genuine War Thunder 2.59 client replays** (format `0x00018C1C`, Zstandard), with 4,577,991 packets framed and every byte accounted for. See [COMPATIBILITY.md](static57-sdl/sdl-replay-decoder/docs/COMPATIBILITY.md).
 
 Payload decoding has started with the replay author's own aircraft: its world position track, cockpit instruments, firing events and kill/damage records. Other aircraft, sensors and missiles are **not decoded yet**. See [FORMAT_FINDINGS §4](static57-sdl/sdl-replay-decoder/docs/FORMAT_FINDINGS.md).
 

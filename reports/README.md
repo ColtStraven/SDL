@@ -9,3 +9,4 @@ Every value keeps its evidence class: **VERIFIED**, **REPORTED**, **DERIVED**, *
 | Report | Replay | Game build | Decoder |
 |---|---|---|---|
 | [2026-11-09_18.50.56_report.md](2026-11-09_18.50.56_report.md) | `#2026.11.09 18.50.56.wrpl` | 2.59.0.100 | 0.1.0 |
+| [2026-11-10_04.23.23_report.md](2026-11-10_04.23.23_report.md) | `#2026.11.10 04.23.23.wrpl` | 2.59.0.100 | 0.1.0 |

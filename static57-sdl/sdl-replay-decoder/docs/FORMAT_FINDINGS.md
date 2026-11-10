@@ -1,7 +1,7 @@
 # S57-003 SDL — `.wrpl` Format Findings
 
-Decoder: `sdl-replay-decoder` 0.1.0. Date: 2026-10-29, updated 2026-11-09 (container counts; new section 4, payload decoding); 2026-11-10 (§4.6 projectile hit events, §6 future research).
-Evidence base: 28 genuine client replays recorded by the Static 57 owner, 2026-10-22 to 2026-10-25 and 2026-11-09 (see [COMPATIBILITY.md](COMPATIBILITY.md)).
+Decoder: `sdl-replay-decoder` 0.1.0. Date: 2026-10-29, updated 2026-11-09 (container counts; new section 4, payload decoding); 2026-11-10 (§4.6 projectile hit events, §6 future research; 29th replay, §4.6.10 reproduction).
+Evidence base: 29 genuine client replays recorded by the Static 57 owner, 2026-10-22 to 2026-10-25 and 2026-11-09 to 2026-11-10 (see [COMPATIBILITY.md](COMPATIBILITY.md)).
 
 Classifications: **VERIFIED** (documented structure with a reproducible cross-check on Static 57 replays), **REPORTED** (external documentation only), **DERIVED**, **EXPERIMENTAL**, **UNKNOWN**.
 
@@ -9,17 +9,17 @@ Classifications: **VERIFIED** (documented structure with a reproducible cross-ch
 
 | Finding | Class | Evidence |
 |---|---|---|
-| Signature `E5 AC 00 10` (`u32le 0x1000ACE5`) at offset 0 | VERIFIED | All 28 files |
-| Format magic at offset 4 = `0x00018C1C` (`1C 8C 01 00`) | VERIFIED | All 28 files |
-| Fixed header is 1234 bytes; settings BLK begins at 1234 | VERIFIED | The zstd magic sits exactly at `1234 + settings_blk_size` in all 28 files |
+| Signature `E5 AC 00 10` (`u32le 0x1000ACE5`) at offset 0 | VERIFIED | All 29 files |
+| Format magic at offset 4 = `0x00018C1C` (`1C 8C 01 00`) | VERIFIED | All 29 files |
+| Fixed header is 1234 bytes; settings BLK begins at 1234 | VERIFIED | The zstd magic sits exactly at `1234 + settings_blk_size` in all 29 files |
 | `settings_blk_size` is a `u16le` at offset 748 | VERIFIED | Same cross-check (observed values 682–1356) |
-| `footer_blk_offset` is a `u32le` at offset 684 and marks the end of the packet stream | VERIFIED | In all 28 files the zstd frame ends exactly at this offset, with 0 trailing bytes |
+| `footer_blk_offset` is a `u32le` at offset 684 and marks the end of the packet stream | VERIFIED | In all 29 files the zstd frame ends exactly at this offset, with 0 trailing bytes |
 | The footer/results BLK runs from `footer_blk_offset` to EOF | REPORTED | Starts with byte `0x01` and contains key names such as `timePlayed` and `authorUserId`; not decoded |
-| The settings BLK leads with byte `0x01` | EXPERIMENTAL | All 28 files. Meaning of the byte not established |
+| The settings BLK leads with byte `0x01` | EXPERIMENTAL | All 29 files. Meaning of the byte not established |
 | `session_id` is a `u64le` at offset 732 | REPORTED | Present and non-zero. Not cross-checked against server parts |
 | `start_time` is Unix seconds (`u32le`) at offset 908 | REPORTED, plausibility DERIVED | Example: `1792795650` = 2026-10-23T22:47:30Z, which matches file name `#2026.10.23 15.47.41` in local time (UTC−7) with the save time 11 s later |
 | `game_version` (`u64le` at 1226) holds four `u16le` words `[build, patch, minor, major]` | EXPERIMENTAL | Reads 2.59.0.80, then .83, then .86 across consecutive days, then 2.59.0.100 on 2026-11-09. Consistent with game updates, not documented anywhere |
-| Client classification (`player_no != 0x80000000`, `segment_length_sec != 90`) | REPORTED | All 28 classify as client. No server replay available |
+| Client classification (`player_no != 0x80000000`, `segment_length_sec != 90`) | REPORTED | All 29 classify as client. No server replay available |
 
 The string fields (level, mission, environment, weather, location) decode as plain NUL-terminated ASCII, for example `levels/air_denmark.bin`, `air_denmark_I2M`, `evening`, `cloudy`.
 
@@ -27,42 +27,42 @@ The string fields (level, mission, environment, weather, location) decode as pla
 
 | Finding | Class | Evidence |
 |---|---|---|
-| Format `18c1c` uses Zstandard for the packet stream | VERIFIED | All 28 files |
-| Exactly **one** zstd frame per client replay | VERIFIED (for these files) | All 28 files |
+| Format `18c1c` uses Zstandard for the packet stream | VERIFIED | All 29 files |
+| Exactly **one** zstd frame per client replay | VERIFIED (for these files) | All 29 files |
 | The frame decodes with a pure streaming decoder; no content-size field is needed | VERIFIED | `ruzstd` streaming decoder |
-| Compression ratio | DERIVED | 1.33× to 4.84× (2026-11-09 replay: 4.10×) |
+| Compression ratio | DERIVED | 1.33× to 4.84× (2026-11-09 replay: 4.10×; 2026-11-10: 4.06×) |
 | zlib for `18c0b` / `18c0a` | REPORTED | No genuine sample. zlib support is tested only on synthetic fixtures |
 
 ## 3. Packet framing (decompressed stream)
 
 | Finding | Class | Evidence |
 |---|---|---|
-| Big-endian variable-length size prefix (see `src/packets.rs`) | VERIFIED | 4,303,777 packets frame with **zero** leftover bytes. Every replay ends with an end marker as its final record |
+| Big-endian variable-length size prefix (see `src/packets.rs`) | VERIFIED | 4,577,991 packets frame with **zero** leftover bytes. Every replay ends with an end marker as its final record |
 | Body = `u16le type`, then a `u32le` millisecond timestamp unless `type & 0x10` | VERIFIED | Same accounting. Explicit timestamps never go backwards in any file |
-| Prefix forms observed | VERIFIED | 1-byte: 2,377,912. 2-byte: 1,925,632. 3-byte: 233. No 4- or 5-byte prefixes seen |
-| **Non-canonical prefixes**: 22.6% of prefixes are longer than the shortest encoding (for example, size 6 written as `40 06`) | VERIFIED (new finding) | 971,333 of 4,303,777. The decoder accepts and counts them. The likely cause is the writer reserving prefix space before the body size is known (EXPERIMENTAL) |
+| Prefix forms observed | VERIFIED | 1-byte: 2,618,783. 2-byte: 1,958,966. 3-byte: 242. No 4- or 5-byte prefixes seen |
+| **Non-canonical prefixes**: 21.7% of prefixes are longer than the shortest encoding (for example, size 6 written as `40 06`) | VERIFIED (new finding) | 994,498 of 4,577,991. The decoder accepts and counts them. The likely cause is the writer reserving prefix space before the body size is known (EXPERIMENTAL) |
 | No bits outside `0x1F` are set in any type field | VERIFIED | `type_high_bits_packets = 0` in all files |
 | The running time starts at 0. Packets that inherit time before the first explicit timestamp get 0 ms | EXPERIMENTAL | 2 replays recorded from session start. Their first explicit times are 27 ms and 32 ms, after 328 and 352 inherited packets. Output marks these `inherited_initial` |
 | Timestamps are session time, not replay-relative | DERIVED | First explicit timestamps range from 27 ms to 7,294,000 ms. Replays started mid-session begin at large values |
 
-### Packet type inventory (all 28 replays)
+### Packet type inventory (all 29 replays)
 
 | Type | Name (REPORTED) | Packets | Payload bytes | Payload min..max | Notes |
 |---|---|---|---|---|---|
-| 0 | end_marker | 28 | 0 | 0..0 | Always the last record (VERIFIED) |
-| 1 | start_marker | 28 | 0 | 0..0 | One per replay |
-| 2 | aircraft_small | 106,345 | 253,576,117 | 19..5,596 | Flight-model sync. Target of Milestone 3. The 19-byte minimum comes from the 2026-11-09 replay (build .100); the earlier 27 never went below 36 |
-| 3 | chat | 417 | 27,919 | 23..154 | In 18 of 28 replays |
-| 4 | mpi | 3,697,865 | 320,562,423 | 4..27,726 | Most frequent type |
-| 6 | ecs | 499,066 | 52,448,157 | 4..208,943 | |
-| 8 | replay_header_info | 28 | 8,400 | 300..300 | Always first; payload always 300 bytes |
+| 0 | end_marker | 29 | 0 | 0..0 | Always the last record (VERIFIED) |
+| 1 | start_marker | 29 | 0 | 0..0 | One per replay |
+| 2 | aircraft_small | 109,583 | 260,619,427 | 17..5,596 | Flight-model sync (§4.3). Syncs under 36 bytes occur only in the two build-.100 replays (19 bytes on 2026-11-09, 17 on 2026-11-10), before the author spawns; the earlier 27 never went below 36 |
+| 3 | chat | 417 | 27,919 | 23..154 | In 18 of 29 replays |
+| 4 | mpi | 3,966,741 | 330,528,096 | 4..27,726 | Most frequent type |
+| 6 | ecs | 501,163 | 53,138,338 | 4..208,943 | |
+| 8 | replay_header_info | 29 | 8,700 | 300..300 | Always first; payload always 300 bytes |
 | 5, 7 | next_segment, snapshot | 0 | — | — | Not present in client replays. Reported for server parts |
 
 Type names come from third-party documentation. `packets.jsonl` keeps every record's `decode_state` as `raw`; decoded payload content is written separately by the `flight` command (section 4).
 
 ## 4. Payload decoding (added 2026-11-09)
 
-Evidence base: replay `#2026.11.09 18.50.56` (build 2.59.0.100, Me 262 A-1a/U4, `air_vietnam`). Decoder module `flight` / `mpi`, command `sdl-replay-decoder flight`. One replay only: every finding below needs confirmation on more replays and aircraft.
+Evidence base: replay `#2026.11.09 18.50.56` (build 2.59.0.100, Me 262 A-1a/U4, `air_vietnam`). Decoder module `flight` / `mpi`, command `sdl-replay-decoder flight`. Sections 4.1–4.6 were first established on that replay. A second replay, `#2026.11.10 04.23.23` (same build, aircraft and mission), reproduces §4.3 and §4.6 (see §4.3 and §4.6.10). Both are the same aircraft and mission, so every finding still needs confirmation on other aircraft, maps and builds.
 
 ### 4.1 Bit order
 
@@ -99,7 +99,7 @@ Evidence base: replay `#2026.11.09 18.50.56` (build 2.59.0.100, Me 262 A-1a/U4, 
 | +8 | Present only when firing; always `00000001` | UNKNOWN | Shifts everything after it by 8 bits |
 | u8 | Counter: starts at 32, falls by exactly one per step, 16 steps, all during firing bursts | EXPERIMENTAL | Consistent with the ammunition count of one gun group |
 | 9 bits | Always 0 | UNKNOWN | |
-| 3 × f32 | **World position `(x, y, z)` in metres; `y` is height above sea level, +x east, +z north** | VERIFIED (this replay) | `y`: 2,494 of 2,494 within 20 m of the cockpit altimeter (median 0.45 m, max 11.3 m). `x`/`z`: RMS 2.2 m, max 3.4 m against all 113 independent 8111 map positions (§4.5). 0 speed discontinuities; max derived speed 214 m/s against max IAS 204 m/s |
+| 3 × f32 | **World position `(x, y, z)` in metres; `y` is height above sea level, +x east, +z north** | VERIFIED (this replay; `y` also on replay 2026-11-10) | `y`: 2,494 of 2,494 within 20 m of the cockpit altimeter (median 0.45 m, max 11.3 m); replay 2026-11-10: 3,141 of 3,141 (median 0.45 m, max 5.5 m), 0 speed discontinuities. `x`/`z`: RMS 2.2 m, max 3.4 m against all 113 independent 8111 map positions (§4.5). 0 speed discontinuities; max derived speed 214 m/s against max IAS 204 m/s |
 | last 96 bits (+0–7 padding) | Second copy of the author position | VERIFIED | 2,494 of 2,494 within 1 cm of the record position, 748 bit-identical (REPORTED by WT_KNOWLEDGE_DOCS as the trailing author position) |
 
 The records after the first one (other aircraft) are **not decoded**. Their sizes give the plateau pattern in the packet-size timeline.
@@ -277,6 +277,42 @@ Sources:
   - The two muzzle-speed groups are unexplained.
 - **Video still needed.** Measured impact points, misses and HUD pixel alignment still need screen recordings or another visual reference.
 
+#### 4.6.10 Reproduction on a second replay (added 2026-11-10)
+
+Replay `#2026.11.10 04.23.23.wrpl` (SHA-256 `f4b1b2ae004f5abd16775dba7cfc7965958ec9ec6595d839e8d2e035fdc75b33`, build 2.59.0.100, `me-262a-1a_u4`, `air_vietnam_ec_BfD_norespawn`). Same method as above; read-only, no decoder changes. Because this is the same aircraft, mission and build, it confirms repeatability, not generality.
+
+| Check | Result | Class |
+|---|---|---|
+| Author offender id | `0x01AC` = 428 again; kill-record killer id 428 | VERIFIED (raw) |
+| Hit clusters with an author key | 9 (on three targets). 8 carry `0xF0C2`; the hit at 418.165 s has `0xF0E9` and `0xF117` only. Key layout as in 4.6.2; indices all multiples of 4; generations 02 and 03 | VERIFIED (raw) |
+| `0xF0C2` block | Same relative layout. T₁ at body bits 471–4603 | VERIFIED (raw) |
+| Launch position vs SDL ownship track | **0.01–0.13 m** for all 8 | VERIFIED (agreement with SDL's track) |
+| Launch times vs counter windows | All 8 reconstructed launch times fall inside one counter window each | Launch times DERIVED; window membership observed |
+| Misses | 6 of 15 counter decrements have no author hit: 32→31, 31→30, 30→29, 27→26, 25→24, 21→20 | VERIFIED (absence) |
+
+| # | Counter | Firing window (s) | Launch (DERIVED, s) | Hit (recorded, s) | Flight time (DERIVED) | Range (DERIVED) | Target (ext-uid bytes) | `0xF0C2` packet |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 29→28 | (353.841, 354.093] | 353.938 | 354.496 | 0.558 s | 609.7 m | `81 d0 11` at (5215.8, 397.2, 4362.1) | 96146 |
+| 2 | 28→27 | (354.345, 354.594] | 354.541 | 354.975 | 0.434 s | 456.1 m | `81 d0 11` | 96344 |
+| 3 | 26→25 | (384.094, 384.345] | 384.208 | 384.647 | 0.439 s | 468.5 m | `81 e8 12` at (5370.5, 402.0, 4521.0) | 108304 |
+| 4 | 24→23 | (415.844, 416.092] | 416.000 | 416.696 | 0.696 s | 708.5 m | `81 d0 11` | 121336 |
+| 5 | 23→22 | (417.096, 417.345] | 417.250 | 417.697 | 0.447 s | 465.5 m | `81 d0 11` (kill record at the same ms) | 121778 |
+| 6 | 22→21 | (417.591, 417.846] | — (no `0xF0C2`) | 418.165 | 0.319–0.574 s (from window) | — | `81 d0 11` | — |
+| 7 | 20→19 | (446.594, 446.841] | 446.812 | 447.516 | 0.704 s | 719.3 m | `81 f0 12` at (5855.8, 374.7, 4316.9) | 134014 |
+| 8 | 19→18 | (447.846, 448.093] | 447.979 | 448.498 | 0.519 s | 510.1 m | `81 f0 12` | 134414 |
+| 9 | 18→17 | (448.591, 448.846] | 448.709 | 449.087 | 0.378 s | 377.3 m | `81 f0 12` | 134682 |
+
+New observations:
+- **The same extended-uid bytes appear at different positions in the two sessions.** `81 d0 11` was at (3039.3, 582.1, −12345.9) on 2026-11-09 and at (5215.8, 397.2, 4362.1) here. These bytes name a mission unit slot, not a fixed object. EXPERIMENTAL.
+- **Possible kill-victim mapping** (open question 11):
+
+  | Replay | Killed target's ext-uid bytes | LEB128 value | Kill-record victim id |
+  |---|---|---|---|
+  | 2026-11-09 | `81 e8 12` | 308,225 | 2332 |
+  | 2026-11-10 | `81 d0 11` | 288,769 | 2313 |
+
+  The LEB128 values differ by 19 × 1024, and the victim ids by 19, consistent with `victim_id = (ext_uid >> 10) + 2031`. **Two points only; EXPERIMENTAL.**
+
 ## 5. Open questions
 
 1. The other aircraft records in `aircraft_small`: per-record layout, uids, orientation and velocity. (The author's x/z is now validated against 8111, §4.5.)
@@ -297,7 +333,7 @@ Sources:
    - Do the small triples in the variable `0xF0C2` remainder, or another field, encode the hit point on the target?
    - Find the target's orientation needed to test this.
 10. **Hit-message fields:** the `0xF0E9` body, the `0xF117`/`0xF13C` trailing bytes, the per-target `0xF0C2` constants (rel −12, +22, +26, +56), and the variable region before T₁.
-11. **Kill-record victim id:** 2332 (`0x091C`) vs the hit messages' extended-uid bytes for target B (`81 e8 12`).
+11. **Kill-record victim id:** 2332 (`0x091C`) vs the hit messages' extended-uid bytes for target B (`81 e8 12`). Two replays fit `victim_id = (ext_uid >> 10) + 2031` (§4.6.10); this needs more kills to confirm.
 
 ## 6. Future research (recorded, not started)
 
