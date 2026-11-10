@@ -54,3 +54,36 @@ fn genuine_replays_frame_completely() {
     }
     eprintln!("{} genuine replays framed completely from {}", files.len(), dir.display());
 }
+
+/// Ownship sync positions must agree with the independent cockpit altimeter.
+/// Replays without an ownship record or cockpit messages are reported, not failed.
+#[test]
+#[ignore = "needs genuine .wrpl files (SDL_REPLAY_DIR)"]
+fn genuine_ownship_altitude_matches_cockpit() {
+    let dir = replay_dir().expect("no replay directory: set SDL_REPLAY_DIR");
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("wrpl")))
+        .collect();
+    files.sort();
+    for path in &files {
+        let bytes = std::fs::read(path).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let d = sdl_replay_decoder::flight::decode(&name, &bytes).unwrap();
+        let s = &d.summary;
+        assert_eq!(s.cockpit_errors, 0, "{name}: cockpit messages failed structural check");
+        let c = &s.cross_check;
+        eprintln!(
+            "{name}: {} ownship, {} cockpit, {}/{} within {} m, {} discontinuities",
+            s.sync.decoded, s.cockpit_messages, c.altitude_within_tolerance, c.samples_with_cockpit_match, c.altitude_tolerance_m, c.speed_discontinuities
+        );
+        if c.samples_with_cockpit_match >= 100 {
+            assert!(
+                c.altitude_within_tolerance * 100 >= c.samples_with_cockpit_match * 99,
+                "{name}: altitude agreement below 99%"
+            );
+            assert_eq!(c.speed_discontinuities, 0, "{name}");
+        }
+    }
+}

@@ -12,12 +12,12 @@ Its foundation is a native `.wrpl` replay decoder, written in Rust and owned by 
 |---|---|---|
 | M1 — Replay file inspector | Signature, version registry, 1234-byte header, sections, codec detection, JSON manifest | **Done** |
 | M2 — Packet extractor | Bounded zstd/zlib streaming, packet framing, timestamps, raw payload preservation, JSONL export | **Done** |
-| M3 — Aircraft track | Decode `aircraft_small` flight-model sync; validate against localhost:8111 | Not started |
+| M3 — Aircraft track | Decode `aircraft_small` flight-model sync; validate against localhost:8111 | **Started**: author position track + cockpit instruments, altimeter-verified on 1 replay; other aircraft not yet |
 | M4+ | Entities, server segments, weapons, sensors, telemetry fusion | Not started |
 
-The decoder is validated on **27 genuine War Thunder 2.59 client replays** (format `0x00018C1C`, Zstandard), with 4,086,169 packets framed and every byte accounted for. See [COMPATIBILITY.md](static57-sdl/sdl-replay-decoder/docs/COMPATIBILITY.md).
+The decoder is validated on **28 genuine War Thunder 2.59 client replays** (format `0x00018C1C`, Zstandard), with 4,303,777 packets framed and every byte accounted for. See [COMPATIBILITY.md](static57-sdl/sdl-replay-decoder/docs/COMPATIBILITY.md).
 
-Packet payloads (flight, weapons, sensors) are **not decoded yet**.
+Payload decoding has started with the replay author's own aircraft: its world position track, cockpit instruments, firing events and kill/damage records. Other aircraft, sensors and missiles are **not decoded yet**. See [FORMAT_FINDINGS §4](static57-sdl/sdl-replay-decoder/docs/FORMAT_FINDINGS.md).
 
 ## Repository layout
 
@@ -37,6 +37,7 @@ cd static57-sdl/sdl-replay-decoder
 cargo build --release
 ./target/release/sdl-replay-decoder inspect  path/to/replay.wrpl
 ./target/release/sdl-replay-decoder packets  path/to/replay.wrpl   # writes sdl-out/<name>/manifest.json + packets.jsonl
+./target/release/sdl-replay-decoder flight   path/to/replay.wrpl   # author track, cockpit, weapon events
 ./target/release/sdl-replay-decoder survey   path/to/Replays/
 cargo test --release -- --include-ignored                           # includes genuine replays (SDL_REPLAY_DIR)
 ```
@@ -61,6 +62,7 @@ Original replay files are only ever read, and they are not stored in this reposi
 - [Architecture](static57-sdl/sdl-replay-decoder/docs/ARCHITECTURE.md)
 - [Format findings](static57-sdl/sdl-replay-decoder/docs/FORMAT_FINDINGS.md)
 - [Compatibility record](static57-sdl/sdl-replay-decoder/docs/COMPATIBILITY.md)
+- [Replay reports](reports/README.md): one analysis report per genuine replay
 
 ## Roles
 

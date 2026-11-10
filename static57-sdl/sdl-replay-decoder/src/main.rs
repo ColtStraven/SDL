@@ -40,6 +40,13 @@ enum Command {
         #[arg(long, default_value_t = 4096)]
         max_output_mib: u64,
     },
+    /// Decode the author's flight track, cockpit instruments and weapon events.
+    Flight {
+        replay: PathBuf,
+        /// Output directory [default: ./sdl-out/<replay name>].
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Inspect and frame many replays; print a compatibility table.
     Survey {
         /// Replay files or directories containing .wrpl files.
@@ -139,6 +146,38 @@ fn print_summary(m: &Manifest) {
     }
 }
 
+fn print_flight_summary(s: &sdl_replay_decoder::flight::FlightSummary) {
+    let ms = |v: Option<u32>| v.map(|v| format!("{:.1} s", v as f64 / 1000.0)).unwrap_or_else(|| "-".into());
+    let c = &s.cross_check;
+    println!("SDL flight decode (ownship only)");
+    println!(
+        "  aircraft_small {} packets: {} ownship records, {} without ownship record, {} unexpected layout, {} truncated",
+        s.sync.aircraft_small_packets, s.sync.decoded, s.sync.no_ownship_record, s.sync.unexpected_layout, s.sync.truncated
+    );
+    println!("  cockpit        {} messages ({} errors), {} parameter ids", s.cockpit_messages, s.cockpit_errors, s.cockpit_param_ids.len());
+    println!(
+        "  altimeter      {} of {} matched samples within {} m (median |delta| {:?} m, max {:?} m)",
+        c.altitude_within_tolerance, c.samples_with_cockpit_match, c.altitude_tolerance_m, c.median_abs_altitude_delta_m, c.max_abs_altitude_delta_m
+    );
+    println!(
+        "  track          {} speed discontinuities, max derived speed {:?} m/s, ground speed / IAS median {:?}",
+        c.speed_discontinuities, c.max_derived_speed_m_s, c.median_ground_speed_to_ias_airborne
+    );
+    println!(
+        "  flight         ownship {}..{}, airborne {}..{}, max altitude {:?} m, max IAS {:?} m/s",
+        ms(s.ownship_first_timestamp_ms),
+        ms(s.ownship_last_timestamp_ms),
+        ms(s.airborne_from_ms),
+        ms(s.airborne_until_ms),
+        s.max_altitude_m,
+        s.max_cockpit_ias_m_s
+    );
+    println!(
+        "  weapons        {} trigger packets, counter {:?} -> {:?} ({} steps down), {} combat records, vehicles {:?}",
+        s.trigger_packets, s.counter_first, s.counter_last, s.counter_steps_down, s.combat_records, s.vehicle_names
+    );
+}
+
 fn collect(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for p in paths {
@@ -187,6 +226,16 @@ fn run() -> Result<ExitCode, String> {
             println!("wrote {}", ex.manifest_path.display());
             println!("wrote {}", ex.packets_path.display());
             Ok(exit_for(&ex.manifest))
+        }
+        Command::Flight { replay, out } => {
+            let file = read(&replay)?;
+            let dir = out.unwrap_or_else(|| PathBuf::from("sdl-out").join(export::sanitized_stem(&replay)));
+            let ex = export::export_flight(&replay, &file, &dir).map_err(|e| e.to_string())?;
+            print_flight_summary(&ex.decode.summary);
+            for f in &ex.files {
+                println!("wrote {}", f.display());
+            }
+            Ok(exit_for(&ex.decode.manifest))
         }
         Command::Survey { paths, out } => {
             let files = collect(&paths);

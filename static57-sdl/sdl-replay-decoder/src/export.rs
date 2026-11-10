@@ -25,6 +25,43 @@ pub fn sanitized_stem(path: &Path) -> String {
     if s.is_empty() { "replay".into() } else { s }
 }
 
+fn write_jsonl<T: serde::Serialize>(path: &Path, items: &[T]) -> io::Result<()> {
+    let mut w = BufWriter::new(File::create(path)?);
+    for it in items {
+        serde_json::to_writer(&mut w, it)?;
+        w.write_all(b"\n")?;
+    }
+    w.flush()
+}
+
+pub struct FlightExport {
+    pub decode: crate::flight::FlightDecode,
+    pub files: Vec<PathBuf>,
+}
+
+/// Decode ownship flight data and weapon events and write `manifest.json`,
+/// `flight_summary.json`, `ownship.jsonl`, `cockpit.jsonl` and
+/// `weapons.jsonl` to `out_dir`.
+pub fn export_flight(input: &Path, file: &[u8], out_dir: &Path) -> io::Result<FlightExport> {
+    fs::create_dir_all(out_dir)?;
+    let input_canon = fs::canonicalize(input).ok();
+    let names = ["manifest.json", "flight_summary.json", "ownship.jsonl", "cockpit.jsonl", "weapons.jsonl"];
+    let files: Vec<PathBuf> = names.iter().map(|n| out_dir.join(n)).collect();
+    for p in &files {
+        if p.exists() && fs::canonicalize(p).ok() == input_canon {
+            return Err(io::Error::other("refusing to overwrite the input replay"));
+        }
+    }
+    let name = input.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let d = crate::flight::decode(&name, file)?;
+    write_json(&files[0], &d.manifest)?;
+    write_json(&files[1], &d.summary)?;
+    write_jsonl(&files[2], &d.ownship)?;
+    write_jsonl(&files[3], &d.cockpit)?;
+    write_jsonl(&files[4], &d.weapons)?;
+    Ok(FlightExport { decode: d, files })
+}
+
 pub struct PacketExport {
     pub manifest: Manifest,
     pub manifest_path: PathBuf,

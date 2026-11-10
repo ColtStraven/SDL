@@ -1,6 +1,6 @@
 # S57-003 SDL — Native Replay Decoder Architecture
 
-## Pipeline (implemented, Milestones 1–2)
+## Pipeline (implemented: Milestones 1–2, Milestone 3 first stage)
 
 ```
 .wrpl bytes (read-only)
@@ -12,7 +12,10 @@
                   raw payload preservation, statistics
   -> manifest     evidence-classified report; promotes fields to VERIFIED only
                   after structural cross-checks
-  -> export       manifest.json, packets.jsonl
+  -> flight/mpi   ownship sync record (type 2), cockpit instruments (MPI 0xD04A),
+                  combat records (MPI 0xF058/0xF056/0xF118); altimeter cross-check
+  -> export       manifest.json, packets.jsonl; flight_summary.json, ownship.jsonl,
+                  cockpit.jsonl, weapons.jsonl
 ```
 
 | Module | Responsibility |
@@ -25,6 +28,9 @@
 | `packets` | `frame_packets` streams `PacketRecord`s into a sink. Never drops records: zero-size, malformed and truncated records are emitted with their bytes |
 | `datablock` | BLK sections stay opaque (length, hash, leading byte, printable-string hints). A native BLK reader is a future module |
 | `manifest` | `analyze()` runs the pipeline for `inspect` or `packets` depth |
+| `bits` | `BitReader` / `BitWriter`: MSB-first bits, little-endian multi-byte values (the convention of packed payloads) |
+| `mpi` | MPI signatures; `parse_cockpit` (0xD04A, length-checked), `parse_combat` (kill / damage / hit-marker records, EXPERIMENTAL) |
+| `flight` | `parse_ownship_sync` for the leading `aircraft_small` record; `decode()` assembles ownship samples, cockpit records and weapon events, and cross-checks height against the altimeter. A position sample is VERIFIED only when that check passes |
 | `export` | JSON writers. Refuses to overwrite the input |
 
 ### Design rules
@@ -42,7 +48,16 @@
 
 64-bit values such as `session_id` are emitted as exact JSON integers. JavaScript consumers should use the matching `*_hex` string.
 
+The `flight` command adds (schema `static57.sdl.flight-summary/0.2`; 0.2 renamed the airspeed fields to IAS after the 8111 validation):
+
+- `flight_summary.json`: sync tally (decoded / no ownship record / unexpected layout / truncated), cockpit message count and errors, parameter ids, the altimeter cross-check, airborne interval, counter range, combat record count.
+- `ownship.jsonl`: per `aircraft_small` packet with an ownship record: `packet_index`, `timestamp_ms`, `on_ground`, `position [x, y, z]`, `position_evidence` (`VERIFIED` when the height check passes, else `EXPERIMENTAL`), `firing`, `triggers`, `counter`, `altimeter_delta_m`, `derived_speed_m_s`, `trailer_matches`, `segment`, `payload_offset`.
+- `cockpit.jsonl`: per `0xD04A` message: `packet_index`, `timestamp_ms`, `params [{id, name?, value}]`, `declared_bits`, `segment`, `payload_offset`.
+- `weapons.jsonl`: time-ordered events `trigger`, `counter_step` (with `counter_from` / `counter_to`), `kill`, `damage`, `hit_marker` (with the raw record), each EXPERIMENTAL.
+
 ## Future module boundaries (not implemented)
+
+`flight` below now exists for the replay author only; other aircraft, attitude and velocity remain future work.
 
 Each future module consumes `PacketRecord` plus its payload bytes, never the compressed file. Every output record must cite its source `(segment, packet index, payload offset)` and an evidence class.
 

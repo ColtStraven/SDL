@@ -2,7 +2,9 @@
 
 Static 57 — Simulation Dynamics Laboratory (S57-003): a native War Thunder `.wrpl` replay decoder, written in Rust.
 
-**Status:** Milestones 1 (file inspector) and 2 (packet extractor) are implemented. They are validated on 27 genuine 2.59 client replays (format `0x00018C1C`, zstd); see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Packet *payloads* are not decoded yet: no flight, weapon or sensor data.
+**Status:** Milestones 1 (file inspector) and 2 (packet extractor) are implemented. They are validated on 28 genuine 2.59 client replays (format `0x00018C1C`, zstd); see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
+
+Milestone 3 has started: the `flight` command decodes the **replay author's** world position track, cockpit instruments (airspeed, altitude, vertical speed, attitude, engines), firing events, a per-shot counter and kill/damage records. Position height is verified against the cockpit altimeter on every sample, and x/z, height, attitude and airspeed were checked against an independent localhost:8111 capture (x/z RMS 2.2 m). This has been validated on **one** replay so far (2026-11-09). Other aircraft, sensors and missiles are not decoded.
 
 ## Build
 
@@ -17,11 +19,13 @@ cargo build --release
 ```
 sdl-replay-decoder inspect <replay.wrpl> [--out DIR] [--json]
 sdl-replay-decoder packets <replay.wrpl> [--out DIR] [--payloads]
+sdl-replay-decoder flight  <replay.wrpl> [--out DIR]
 sdl-replay-decoder survey  <folder-or-files...> [--out survey.json]
 ```
 
 - `inspect` checks the header, sections, codec and full decompression, and prints a summary. `--out` writes `manifest.json`; `--json` prints the manifest instead of the summary.
 - `packets` adds packet framing. It writes `manifest.json` and `packets.jsonl` to `--out`, or by default to `./sdl-out/<replay name>/`. `--payloads` adds each payload as hex (large).
+- `flight` decodes the author's flight and weapon data. It writes `manifest.json`, `flight_summary.json`, `ownship.jsonl`, `cockpit.jsonl` and `weapons.jsonl` (default `./sdl-out/<replay name>/`) and prints the altimeter cross-check.
 - `survey` frames many replays and prints a compatibility table.
 
 Exit codes: `0` ok, `1` partial (report produced, with errors), `2` rejected or I/O failure.
@@ -31,7 +35,7 @@ Replays are opened read-only. Output is never written next to the replay unless 
 ## Tests
 
 ```
-cargo test                                   # synthetic fixtures (40 tests)
+cargo test                                   # synthetic fixtures (50 tests)
 cargo test --release -- --include-ignored    # plus genuine replays
 ```
 

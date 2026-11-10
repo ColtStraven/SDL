@@ -6,12 +6,15 @@
 //! future modules layered on [`packets::PacketRecord`]; see
 //! `docs/ARCHITECTURE.md`.
 
+pub mod bits;
 pub mod compression;
 pub mod container;
 pub mod datablock;
 pub mod diagnostics;
 pub mod evidence;
 pub mod export;
+pub mod flight;
 pub mod manifest;
+pub mod mpi;
 pub mod packets;
 pub mod versions;
