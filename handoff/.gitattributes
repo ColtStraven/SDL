@@ -1,0 +1,2 @@
+# Handoff data must stay byte-exact so SHA256SUMS remain valid.
+* -text
