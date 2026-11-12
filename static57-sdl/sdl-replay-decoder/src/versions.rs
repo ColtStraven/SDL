@@ -52,7 +52,15 @@ pub const PROFILES: &[FormatProfile] = &[
         expected_codec: Codec::Zstd,
         header_layout: "wrpl-1234",
         evidence: Evidence::Verified,
-        notes: "Game 2.59 client replays with zstd packet stream. Verified on Static 57 replays recorded 2026-10-22..25 (game version field 2.59.0.80-86).",
+        notes: "Game 2.59 client replays with zstd packet stream. Verified on Static 57 replays recorded 2026-10-22..25 and 2026-11-09..10 (game version field 2.59.0.80-100).",
+    },
+    FormatProfile {
+        magic: 0x0001_8C2D,
+        name: "18c2d",
+        expected_codec: Codec::Zstd,
+        header_layout: "wrpl-1234",
+        evidence: Evidence::Verified,
+        notes: "Game 2.61 client replays with zstd packet stream. Verified on one Static 57 replay (2026-11-11, game version field 2.61.0.11): the zstd magic sits at 1234 + settings_blk_size, the frame ends exactly at footer_blk_offset, and every byte frames. replay_header_info grew from 300 to 324 bytes.",
     },
 ];
 

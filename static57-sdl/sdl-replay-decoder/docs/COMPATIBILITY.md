@@ -3,14 +3,14 @@
 Every genuine replay used for compatibility testing. Files were **read only**, never modified or copied into the repository.
 
 - Source: owner's War Thunder client, `%LOCALAPPDATA%\WarThunder\Replays`
-- Recording type: client replays, Air Simulator Battles
-- Format magic: `0x00018C1C` (all files)
+- Recording type: client replays, Air Simulator Battles. Aircraft, where identified: Me 262 A-1a/U4 (2026-11-09..10), F-84B (2026-11-11)
+- Format magic: `0x00018C1C` (all files up to 2026-11-10); `0x00018C2D` (2026-11-11, game build 2.61)
 - Codec: Zstandard, one frame per file
 - Game version: the header's `game_version` field, interpreted EXPERIMENTALLY as `major.minor.patch.build`
 - Decoder: `sdl-replay-decoder` 0.1.0. First 27 files tested 2026-10-29. The 28th file was tested 2026-11-09 and the 29th on 2026-11-10, on a second machine (Rust 1.99.1, GNU toolchain), where the first 27 were not available to re-run
 - Reproduce: `SDL_REPLAY_DIR=<folder> cargo test --release -- --ignored`, or `sdl-replay-decoder survey <folder>`
 
-Result: **29 of 29 decode with status `ok`.** In every file, every compressed byte is consumed, every decompressed byte is framed into packets, there are 0 unknown packet types and 0 malformed records, the clock is monotonic, and the end marker is the final record.
+Result: **30 of 30 decode with status `ok`.** In every file, every compressed byte is consumed, every decompressed byte is framed into packets, there are 0 unknown packet types and 0 malformed records, the clock is monotonic, and the end marker is the final record.
 
 "Packets" counts records. "Span" is the DERIVED difference between the last and first explicit timestamps. "Acct" means every byte is accounted for.
 
@@ -45,5 +45,6 @@ Result: **29 of 29 decode with status `ok`.** In every file, every compressed by
 | #2026.10.25 06.01.19.wrpl|5296707|2.59.0.86|Zstd|92272|589.9|true|352317cb86a051cf40c024292837f63f8c71825470ed0332cfef6c1e9ede03b5 |
 | #2026.11.09 18.50.56.wrpl|3640549|2.59.0.100|Zstd|217608|665.7|true|84aff3c26e7bca3306d1df31e2d308337fdd97eebf52bb01cf0d1556180a183f |
 | #2026.11.10 04.23.23.wrpl|4661984|2.59.0.100|Zstd|274214|811.1|true|f4b1b2ae004f5abd16775dba7cfc7965958ec9ec6595d839e8d2e035fdc75b33 |
+| #2026.11.11 17.32.49.wrpl|4954983|2.61.0.11|Zstd|273366|796.3|true|af9af7ba4c80cd4204357d5d8d4cd2ec6cce05f03693b0ee218d4b44ff5f9f23 |
 
 Not yet tested, because no genuine sample exists: format `18c0b` (pre-2.59 zlib), `18c0a` (dev), server replay parts, and client builds other than those listed above.

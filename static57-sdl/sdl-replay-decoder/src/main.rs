@@ -154,10 +154,22 @@ fn print_flight_summary(s: &sdl_replay_decoder::flight::FlightSummary) {
         "  aircraft_small {} packets: {} ownship records, {} without ownship record, {} unexpected layout, {} truncated",
         s.sync.aircraft_small_packets, s.sync.decoded, s.sync.no_ownship_record, s.sync.unexpected_layout, s.sync.truncated
     );
+    println!(
+        "  record         weapon entry counts {:?}; position located by {:?}",
+        s.entry_counts, s.position_sources
+    );
     println!("  cockpit        {} messages ({} errors), {} parameter ids", s.cockpit_messages, s.cockpit_errors, s.cockpit_param_ids.len());
     println!(
-        "  altimeter      {} of {} matched samples within {} m (median |delta| {:?} m, max {:?} m)",
-        c.altitude_within_tolerance, c.samples_with_cockpit_match, c.altitude_tolerance_m, c.median_abs_altitude_delta_m, c.max_abs_altitude_delta_m
+        "  altimeter      unit {} [{:?}] (median |delta| if m {:?}, if ft {:?}); {} of {} matched samples within {} m (median {:?} m, max {:?} m)",
+        c.altimeter_unit,
+        c.altimeter_unit_evidence,
+        c.median_abs_delta_if_m,
+        c.median_abs_delta_if_ft,
+        c.altitude_within_tolerance,
+        c.samples_with_cockpit_match,
+        c.altitude_tolerance_m,
+        c.median_abs_altitude_delta_m,
+        c.max_abs_altitude_delta_m
     );
     println!(
         "  track          {} speed discontinuities, max derived speed {:?} m/s, ground speed / IAS median {:?}",
@@ -173,8 +185,14 @@ fn print_flight_summary(s: &sdl_replay_decoder::flight::FlightSummary) {
         s.max_cockpit_ias_m_s
     );
     println!(
-        "  weapons        {} trigger packets, counter {:?} -> {:?} ({} steps down), {} combat records, vehicles {:?}",
-        s.trigger_packets, s.counter_first, s.counter_last, s.counter_steps_down, s.combat_records, s.vehicle_names
+        "  weapons        {} trigger packets, counter {:?} -> {:?} ({} steps down), {} weapon-block changes, {} combat records, vehicles {:?}",
+        s.trigger_packets,
+        s.counter_first,
+        s.counter_last,
+        s.counter_steps_down,
+        s.weapon_block_changes,
+        s.combat_records,
+        s.vehicle_names
     );
 }
 

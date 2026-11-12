@@ -35,7 +35,9 @@ pub const COCKPIT_PARAMS: &[(u16, &str, &str)] = &[
     (23, "stick_elevator", "stick_elevator"),
     (31, "stick_ailerons", "stick_ailerons"),
     (39, "vertical_speed_m_s", "vario"),
-    (40, "altitude_m", "altitude_hour"),
+    // Unit depends on the aircraft (metres on the Me 262, feet on the F-84B);
+    // see the flight summary's `cross_check.altimeter_unit`.
+    (40, "altitude", "altitude_hour"),
     (41, "altitude_min_hand", "altitude_min"),
     (52, "roll_deg_inverted", "aviahorizon_roll"),
     (53, "pitch_deg_inverted", "aviahorizon_pitch"),

@@ -6,7 +6,7 @@
 
 use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Evidence {
     /// Demonstrated by documented structure plus a reproducible cross-check in
@@ -20,6 +20,7 @@ pub enum Evidence {
     /// Plausible interpretation awaiting validation.
     Experimental,
     /// Not established.
+    #[default]
     Unknown,
 }
 

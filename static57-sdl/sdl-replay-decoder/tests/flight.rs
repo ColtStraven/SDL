@@ -2,7 +2,9 @@
 //! only). The genuine-replay checks live in `genuine_replays.rs`.
 
 use sdl_replay_decoder::bits::{BitReader, BitWriter};
-use sdl_replay_decoder::flight::{parse_ownship_sync, trailer_position, SyncSkip, SYNC_PREFIX, SYNC_PREFIX_BITS};
+use sdl_replay_decoder::flight::{
+    parse_ownship_sync, parse_ownship_sync_hinted, trailer_position, OffsetHints, SyncSkip, SYNC_PREFIX, SYNC_PREFIX_BITS,
+};
 use sdl_replay_decoder::mpi::{length_prefixed_strings, parse_cockpit, parse_combat, read_leb128, CockpitError, SIG_COCKPIT};
 
 #[test]
@@ -33,14 +35,20 @@ fn genuine_sync_prefix_bytes() {
     assert_eq!(r.bit(), Some(true), "0x62 marks on-ground");
 }
 
-fn sync(on_ground: bool, firing: bool, counter: u8, pos: [f32; 3], trailer: bool) -> Vec<u8> {
+/// Leading record with an explicit weapon block. Layout: prefix, on_ground,
+/// unknown bit, u32, flags(4), entry count(4), [8 bits when firing], weapon
+/// block, closing bit, position, opaque bits, optional trailing copy.
+fn sync_with_block(on_ground: bool, flags: u8, count: u8, block: &[(u64, usize)], pos: [f32; 3], trailer: bool) -> Vec<u8> {
     let mut w = BitWriter::new();
     w.bits(SYNC_PREFIX, SYNC_PREFIX_BITS).bit(on_ground).bit(false).u32(0);
-    w.bit(firing).bits(if firing { 0b0100 } else { 0 }, 4).bits(0b001, 3);
-    if firing {
+    w.bits(flags as u64, 4).bits(count as u64, 4);
+    if flags & 0b1000 != 0 {
         w.u8(1);
     }
-    w.u8(counter).bits(0, 9);
+    for &(v, n) in block {
+        w.bits(v, n);
+    }
+    w.bit(false);
     for v in pos {
         w.f32(v);
     }
@@ -54,17 +62,35 @@ fn sync(on_ground: bool, firing: bool, counter: u8, pos: [f32; 3], trailer: bool
     w.finish()
 }
 
+/// Me 262 layout: one 16-bit counter entry (`u16le`, written MSB-first per byte).
+fn sync(on_ground: bool, firing: bool, counter: u8, pos: [f32; 3], trailer: bool) -> Vec<u8> {
+    let flags = if firing { 0b1010 } else { 0 };
+    sync_with_block(on_ground, flags, 1, &[(counter as u64, 8), (0, 8)], pos, trailer)
+}
+
 #[test]
 fn parses_ownship_record_and_firing_block() {
     let pos = [-7317.92, 541.02, -29963.81];
     let s = parse_ownship_sync(&sync(true, false, 32, pos, false)).unwrap();
     assert!(s.on_ground && !s.firing);
-    assert_eq!((s.counter, s.position, s.position_bit_offset), (32, pos, 97));
+    assert_eq!((s.counter, s.position, s.position_bit_offset), (Some(32), pos, 97));
+    assert_eq!((s.entry_count, s.weapon_block_bits, s.position_source), (1, 16, "single_entry_layout"));
 
     let s = parse_ownship_sync(&sync(false, true, 30, pos, false)).unwrap();
     assert!(!s.on_ground && s.firing);
-    assert_eq!((s.triggers, s.firing_extra, s.counter, s.position_bit_offset), (0b0100, Some(1), 30, 105));
+    assert_eq!((s.flags, s.triggers, s.firing_extra, s.counter, s.position_bit_offset), (0b1010, 0b010, Some(1), Some(30), 105));
     assert_eq!(s.position, pos);
+}
+
+#[test]
+fn genuine_me262_header_byte_reads_one_entry() {
+    // Bits 72..80 of a genuine Me 262 sync (`00000001`) and a firing one
+    // (`10100001`): flags then entry count 1.
+    for (byte, flags) in [(0b0000_0001u8, 0u8), (0b1010_0001, 0b1010)] {
+        let buf = [byte];
+        let mut r = BitReader::new(&buf);
+        assert_eq!((r.bits(4), r.bits(4)), (Some(flags as u64), Some(1)));
+    }
 }
 
 #[test]
@@ -72,7 +98,52 @@ fn trailer_position_is_found() {
     let pos = [1279.07, 1741.59, -16057.5];
     let b = sync(false, false, 32, pos, true);
     assert_eq!(trailer_position(&b), Some(pos));
-    assert!(parse_ownship_sync(&b).unwrap().trailer_matches);
+    let s = parse_ownship_sync(&b).unwrap();
+    assert!(s.trailer_matches);
+    assert_eq!(s.position_source, "trailer_match");
+}
+
+/// F-84B-like block: 6 x 24-bit gun entries (`6c 02 00`, as in the genuine
+/// replay) and 8 x 16-bit store entries (`01 00`): 14 entries, 272 bits.
+fn f84b_block() -> Vec<(u64, usize)> {
+    let mut b = vec![(0x6c0200, 24); 6];
+    b.extend(vec![(0x0100, 16); 8]);
+    b
+}
+
+#[test]
+fn multi_entry_block_is_located_by_trailer() {
+    let pos = [5215.8, 1794.3, 4362.1];
+    let b = sync_with_block(true, 0, 14, &f84b_block(), pos, true);
+    let s = parse_ownship_sync(&b).unwrap();
+    assert_eq!((s.entry_count, s.weapon_block_bits, s.position_bit_offset), (14, 272, 80 + 272 + 1));
+    assert_eq!((s.position, s.position_source, s.counter), (pos, "trailer_match", None));
+    assert!(s.weapon_block_hex.starts_with("6c0200"));
+}
+
+#[test]
+fn multi_entry_block_without_trailer_uses_hint_or_refuses() {
+    let pos = [5215.8, 1794.3, 4362.1];
+    let b = sync_with_block(false, 0, 14, &f84b_block(), pos, false);
+    assert_eq!(parse_ownship_sync(&b).unwrap_err(), SyncSkip::UnexpectedLayout);
+    let mut hints = OffsetHints::new();
+    hints.insert((14, false), 353);
+    let s = parse_ownship_sync_hinted(&b, &hints).unwrap();
+    assert_eq!((s.position, s.position_source), (pos, "previous_offset"));
+    // A hint for another entry count or firing state is not used.
+    let mut other = OffsetHints::new();
+    other.insert((14, true), 353);
+    assert_eq!(parse_ownship_sync_hinted(&b, &other).unwrap_err(), SyncSkip::UnexpectedLayout);
+}
+
+#[test]
+fn zero_regions_and_shifted_floats_are_not_positions() {
+    // A zero weapon block must not "match" a zero-padding trailer read, and
+    // the earliest exact copy of the trailer is the real position.
+    let pos = [-7211.67, 541.02, -28988.91];
+    let b = sync_with_block(true, 0, 3, &[(0, 32), (0, 32), (0, 32)], pos, true);
+    let s = parse_ownship_sync(&b).unwrap();
+    assert_eq!((s.position, s.position_bit_offset), (pos, 80 + 96 + 1));
 }
 
 #[test]
@@ -84,11 +155,10 @@ fn pre_spawn_sync_has_no_ownship_record() {
 }
 
 #[test]
-fn unexpected_group_bits_are_not_interpreted() {
-    let mut w = BitWriter::new();
-    w.bits(SYNC_PREFIX, SYNC_PREFIX_BITS).bit(false).bit(false).u32(0).bit(false).bits(0, 4).bits(0b011, 3);
-    w.u8(0).bits(0, 9).f32(1.0).f32(2.0).f32(3.0);
-    assert_eq!(parse_ownship_sync(&w.finish()).unwrap_err(), SyncSkip::UnexpectedLayout);
+fn implausible_single_entry_position_is_refused() {
+    // One entry but a non-position where the position should be (no trailer).
+    let b = sync_with_block(false, 0, 1, &[(0, 16)], [0.0, 0.0, 0.0], false);
+    assert_eq!(parse_ownship_sync(&b).unwrap_err(), SyncSkip::UnexpectedLayout);
 }
 
 fn cockpit(pairs: &[(u16, f32)], declared_extra: u64) -> Vec<u8> {
